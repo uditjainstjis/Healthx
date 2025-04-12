@@ -1,103 +1,239 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Radiation, Brain, Activity } from "lucide-react";
+
+import {
+  Mic,
+  Heart,
+  Settings as Lungs,
+  Footprints,
+  Moon,
+  Droplets,
+  Camera,
+  Volume as VolumeUp,
+  Eye,
+  BringToFront as Tongue,
+  Scan,
+  ChevronRight,
+  Menu,
+} from "lucide-react";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const router = useRouter();
+  const [input, setInput] = useState("");
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const handleChatStart = () => {
+    // Store the input in localStorage before navigating
+    if (input.trim()) {
+      localStorage.setItem('initialMessage', input);
+    }
+    router.push("/chat");
+  };
+
+  const handleSensorClick = (type: string) => {
+    router.push(`/sensors/${type.toLowerCase().replace(/\s+/g, '-')}`);
+  };
+
+  const handleCameraClick = (type: string) => {
+    router.push(`/camera/${type.toLowerCase().replace(/\s+/g, '-')}`);
+  };
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Navbar */}
+      <nav className="border-b">
+        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Heart className="h-6 w-6 text-primary" />
+            <span className="font-semibold text-lg">HealthGuard AI</span>
+          </div>
+          <div className="hidden md:flex space-x-6">
+            <Button variant="ghost">Features</Button>
+            <Button variant="ghost">How it Works</Button>
+            <Button variant="ghost">About</Button>
+            <Button>Get Started</Button>
+          </div>
+          <Button variant="ghost" className="md:hidden">
+            <Menu className="h-6 w-6" />
+          </Button>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      </nav>
+
+      {/* Hero Section */}
+      <section className="container mx-auto px-4 py-16 md:py-24">
+        <div className="max-w-3xl mx-auto text-center">
+          <h1 className="text-4xl md:text-6xl font-bold tracking-tight mb-6">
+            Early Action, Healthy Living
+          </h1>
+          <p className="text-lg md:text-xl text-muted-foreground mb-8">
+            Your personal AI-powered health companion that helps you stay ahead of health issues
+            through preventive care and early detection.
+          </p>
+          
+          {/* AI Chat Box */}
+          <Card className="p-4 mb-12">
+            <div className="flex items-center space-x-2">
+              <Input 
+                placeholder="Chat with AI about your health concerns..."
+                className="flex-1"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleChatStart()}
+              />
+              <Button variant="outline" size="icon" onClick={handleChatStart}>
+                <Mic className="h-5 w-5" />
+              </Button>
+            </div>
+          </Card>
+        </div>
+      </section>
+
+      {/* Health Scanning Sections */}
+      <section className="container mx-auto px-4 py-12">
+        <Tabs defaultValue="sensors" className="max-w-4xl mx-auto">
+          <TabsList className="grid w-full grid-cols-3 mb-8">
+            <TabsTrigger value="sensors">Sensor-based Scanning</TabsTrigger>
+            <TabsTrigger value="camera">Camera-based Analysis</TabsTrigger>
+            <TabsTrigger value="reports">Scan-reports Analysis</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="sensors">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {[
+                { icon: Heart, label: "Heart Rate", description: "Monitor your heart rate in real-time" },
+                { icon: Lungs, label: "Breath Rate", description: "Track your breathing patterns" },
+                { icon: Footprints, label: "Step Count", description: "Daily activity monitoring" },
+                { icon: Moon, label: "Sleep Tracking", description: "Analyze your sleep quality" },
+                { icon: Droplets, label: "SPO₂", description: "Measure oxygen saturation" },
+              ].map((item, index) => (
+                <Button
+                  key={index}
+                  variant="outline"
+                  className="h-32 flex-col space-y-2 p-4 hover:bg-primary/5"
+                  onClick={() => handleSensorClick(item.label)}
+                >
+                  <item.icon className="h-8 w-8" />
+                  <span className="font-medium">{item.label}</span>
+                  <span className="text-xs text-muted-foreground">{item.description}</span>
+                </Button>
+              ))}
+            </div>
+          </TabsContent>
+          
+          <TabsContent value="camera">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {[
+                { icon: Camera, label: "Image Capture", description: "Take photos for analysis" },
+                { icon: VolumeUp, label: "Voice Analysis", description: "Analyze speech patterns" },
+                { icon: Eye, label: "Eye Scan", description: "Check eye health" },
+                { icon: Tongue, label: "Tongue Analysis", description: "Analyze tongue health" },
+                { icon: Scan, label: "Skin & Nail Scan", description: "Detect skin conditions" },
+              ].map((item, index) => (
+                <Button
+                  key={index}
+                  variant="outline"
+                  className="h-32 flex-col space-y-2 p-4 hover:bg-primary/5"
+                  onClick={() => handleCameraClick(item.label)}
+                >
+                  <item.icon className="h-8 w-8" />
+                  <span className="font-medium">{item.label}</span>
+                  <span className="text-xs text-muted-foreground">{item.description}</span>
+                </Button>
+              ))}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="reports">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {[
+                { icon: Radiation, label: "X-ray Scan", description: "Analyze X-ray images" },
+                { icon: Brain, label: "MRI Scan", description: "Detailed brain and body scans" },
+                { icon: Activity, label: "ECG Scan", description: "Monitor heart activity" },
+              ].map((item, index) => (
+                <Button
+                  key={index}
+                  variant="outline"
+                  className="h-32 flex-col space-y-2 p-4 hover:bg-primary/5"
+                  onClick={() => handleCameraClick(item.label)}
+                >
+                  <item.icon className="h-8 w-8" />
+                  <span className="font-medium">{item.label}</span>
+                  <span className="text-xs text-muted-foreground">{item.description}</span>
+                </Button>
+              ))}
+            </div>
+        </TabsContent>
+        </Tabs>
+      </section>
+
+      {/* Insights Section */}
+      <section className="container mx-auto px-4 py-12 bg-muted/50">
+        <div className="max-w-4xl mx-auto">
+          <h2 className="text-2xl font-semibold mb-6 text-center">
+            AI-Powered Health Insights
+          </h2>
+          <Card className="p-6">
+            <div className="space-y-4">
+              <div className="flex items-center space-x-4">
+                <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Heart className="h-6 w-6 text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-medium">Personalized Health Tracking</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Get real-time insights based on your vital signs and daily activities
+                  </p>
+                </div>
+                <ChevronRight className="ml-auto h-5 w-5 text-muted-foreground" />
+              </div>
+            </div>
+          </Card>
+        </div>
+      </section>
+
+      {/* FAQ Section */}
+      <section className="container mx-auto px-4 py-12">
+        <div className="max-w-3xl mx-auto">
+          <h2 className="text-2xl font-semibold mb-6 text-center">
+            Frequently Asked Questions
+          </h2>
+          <Accordion type="single" collapsible>
+            <AccordionItem value="item-1">
+              <AccordionTrigger>How do the sensor-based scans work?</AccordionTrigger>
+              <AccordionContent>
+                Our app uses your device's built-in sensors to measure various health metrics.
+                Simply follow the on-screen instructions for each measurement type.
+              </AccordionContent>
+            </AccordionItem>
+            <AccordionItem value="item-2">
+              <AccordionTrigger>Is the camera analysis safe and private?</AccordionTrigger>
+              <AccordionContent>
+                Yes, all camera-based analyses are performed locally on your device.
+                Your privacy is our top priority, and no images are stored or transmitted.
+              </AccordionContent>
+            </AccordionItem>
+            <AccordionItem value="item-3">
+              <AccordionTrigger>How accurate are the AI predictions?</AccordionTrigger>
+              <AccordionContent>
+                Our AI models are trained on extensive medical datasets and provide insights
+                with high accuracy. However, they should not replace professional medical advice.
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </div>
+      </section>
     </div>
   );
 }

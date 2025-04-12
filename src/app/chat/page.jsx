@@ -1,12 +1,14 @@
-// src/app/chat/page.jsx (or .tsx)
+// src/app/chat/page.jsx
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Heart, Loader2 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
-import { Heart, Send, Mic, MessageSquare, Plus, Loader2 } from "lucide-react";
+import { useRouter } from 'next/navigation'; // Import useRouter
+
+import ChatSidebar from "../components/ChatSidebar";
+import ChatMessage from "../components/ChatMessage";
+import ChatInput from "../components/ChatInput";
 
 export default function ChatPage() {
   const [chats, setChats] = useState([]); // Array of chat objects
@@ -15,43 +17,46 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const scrollRef = useRef(null);
+  const router = useRouter(); // Initialize useRouter
 
   useEffect(() => {
-    const storedChats = localStorage.getItem('chats');
+    const storedChats = localStorage.getItem("chats");
     if (storedChats) {
       setChats(JSON.parse(storedChats));
-    } else {
-      // Create a default chat if there are no existing chats
-      createNewChat();
     }
   }, []);
 
+  useEffect(() => {
+    if (chats.length === 0) {
+      createNewChat(); // Create a new chat if no chats exist
+    } else if (!currentChat && chats.length > 0) {
+      setCurrentChat(chats[0].id); // Set the current chat to the first one if no currentChat is set
+    }
+  }, [chats]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({
         top: scrollRef.current.scrollHeight,
-        behavior: 'smooth'
+        behavior: "smooth",
       });
     }
   }, [chats, currentChat]);
 
-
   useEffect(() => {
-    localStorage.setItem('chats', JSON.stringify(chats));
+    localStorage.setItem("chats", JSON.stringify(chats));
   }, [chats]);
 
   const handleSendMessage = async (message) => {
     if (!message.trim()) return;
-
-    // Add user message to the current chat
+  
     const newUserMessage = {
       id: Date.now().toString(),
       role: "user",
       content: message,
       timestamp: new Date(),
     };
-
+  
     setChats((prevChats) => {
       return prevChats.map((chat) => {
         if (chat.id === currentChat) {
@@ -60,34 +65,47 @@ export default function ChatPage() {
         return chat;
       });
     });
-
+  
     setInput("");
     setIsLoading(true);
-
+  
     try {
-      const response = await fetch("/api/medlm", {
+      // Retrieve current chat history
+      const currentChatData = chats.find((chat) => chat.id === currentChat);
+      const chatHistory = currentChatData ? currentChatData.messages : [];
+  
+      // Include the new user message in the chat history
+      const updatedChatHistory = [...chatHistory, newUserMessage];
+  
+      // Map chat history to the format expected by Groq
+      const groqMessages = updatedChatHistory.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+  
+      const response = await fetch("/api/groq", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message: message }),
+        body: JSON.stringify({ messages: groqMessages }), // Send entire history
       });
-
+  
       if (!response.ok) {
         console.error("API Error:", response.status, response.statusText);
-        // Display an error message to the user (consider using a state variable for this)
         throw new Error(`API Error: ${response.statusText}`);
       }
-
+  
       const data = await response.json();
-      const aiResponse = data.response; // Adjust based on the API response
-
+      const aiResponse = data.response;
+  
       const newAiMessage = {
         id: Date.now().toString(),
         role: "assistant",
         content: aiResponse,
         timestamp: new Date(),
       };
+  
       setChats((prevChats) => {
         return prevChats.map((chat) => {
           if (chat.id === currentChat) {
@@ -98,13 +116,27 @@ export default function ChatPage() {
       });
     } catch (error) {
       console.error("Error sending message:", error);
-      // Handle the error (e.g., display an error message to the user)
     } finally {
       setIsLoading(false);
     }
   };
 
   const createNewChat = () => {
+    // Check if there's a current chat and if it's empty (only has the initial assistant message)
+    if (currentChat) {
+      const currentChatData = chats.find((chat) => chat.id === currentChat);
+      if (
+        currentChatData &&
+        currentChatData.messages.length === 1 &&
+        currentChatData.messages[0].role === "assistant"
+      ) {
+        // Delete the empty previous chat
+        const updatedChats = chats.filter((chat) => chat.id !== currentChat);
+        setChats(updatedChats);
+        localStorage.setItem("chats", JSON.stringify(updatedChats)); // Update localStorage
+      }
+    }
+
     const newChatId = Date.now().toString();
     const newChat = {
       id: newChatId,
@@ -122,7 +154,6 @@ export default function ChatPage() {
     setChats((prev) => [newChat, ...prev]);
     setCurrentChat(newChatId);
   };
-
   const handleVoiceInput = async () => {
     if (!("webkitSpeechRecognition" in window)) {
       alert(
@@ -168,33 +199,12 @@ export default function ChatPage() {
   return (
     <div className="flex h-screen bg-background">
       {/* Sidebar */}
-      <div className="w-64 border-r bg-muted/30">
-        <div className="p-4">
-          <Button
-            className="w-full justify-start space-x-2"
-            onClick={createNewChat}
-          >
-            <Plus size={16} />
-            <span>New chat</span>
-          </Button>
-        </div>
-        <Separator />
-        <ScrollArea className="h-[calc(100vh-5rem)]">
-          <div className="p-2 space-y-2">
-            {chats.map((chat) => (
-              <Button
-                key={chat.id}
-                variant={chat.id === currentChat ? "secondary" : "ghost"}
-                className="w-full justify-start space-x-2"
-                onClick={() => setCurrentChat(chat.id)}
-              >
-                <MessageSquare size={16} />
-                <span className="truncate">{chat.title}</span>
-              </Button>
-            ))}
-          </div>
-        </ScrollArea>
-      </div>
+      <ChatSidebar
+        chats={chats}
+        currentChat={currentChat}
+        onChatClick={setCurrentChat}
+        onNewChatClick={createNewChat}
+      />
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
@@ -210,22 +220,7 @@ export default function ChatPage() {
         <ScrollArea className="flex-1 p-4" ref={scrollRef}>
           <div className="max-w-3xl mx-auto space-y-4">
             {currentChatData?.messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${
-                  message.role === "assistant" ? "justify-start" : "justify-end"
-                }`}
-              >
-                <div
-                  className={`rounded-lg p-4 max-w-[80%] ${
-                    message.role === "assistant"
-                      ? "bg-muted"
-                      : "bg-primary text-primary-foreground"
-                  }`}
-                >
-                  {message.content}
-                </div>
-              </div>
+              <ChatMessage key={message.id} message={message} />
             ))}
             {isLoading && (
               <div className="flex justify-start">
@@ -238,34 +233,14 @@ export default function ChatPage() {
         </ScrollArea>
 
         {/* Input Area */}
-        <div className="border-t p-4">
-          <div className="max-w-3xl mx-auto flex items-center space-x-2">
-            <Input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Type your health question..."
-              onKeyPress={(e) => e.key === "Enter" && handleSendMessage(input)}
-            />
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={handleVoiceInput}
-              disabled={isListening}
-            >
-              {isListening ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <Mic className="h-5 w-5" />
-              )}
-            </Button>
-            <Button
-              onClick={() => handleSendMessage(input)}
-              disabled={!input.trim() || isLoading}
-            >
-              <Send className="h-5 w-5" />
-            </Button>
-          </div>
-        </div>
+        <ChatInput
+          input={input}
+          setInput={setInput}
+          onSendMessage={handleSendMessage}
+          onVoiceInput={handleVoiceInput}
+          isLoading={isLoading}
+          isListening={isListening}
+        />
       </div>
     </div>
   );

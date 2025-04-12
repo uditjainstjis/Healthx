@@ -324,6 +324,7 @@ export default function ChatPage() {
           isListening={isListening}
         />
       </div>
+
       {/* REMINDER: Add <Toaster /> from sonner to your app's root layout (e.g., layout.js) */}
       {/* <Toaster position="top-center" richColors /> */}
     </div>

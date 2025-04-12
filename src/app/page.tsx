@@ -213,7 +213,7 @@ export default function Home() {
             <AccordionItem value="item-1">
               <AccordionTrigger>How do the sensor-based scans work?</AccordionTrigger>
               <AccordionContent>
-                Our app uses your device's built-in sensors to measure various health metrics.
+                Our app uses your device built-in sensors to measure various health metrics.
                 Simply follow the on-screen instructions for each measurement type.
               </AccordionContent>
             </AccordionItem>

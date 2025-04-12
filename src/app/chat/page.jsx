@@ -1,145 +1,147 @@
-'use client'
-// Keep existing imports
-import React, { useState, useEffect, useRef } from "react"; // Added useRef
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
-// Add imports for Dialog, Label, Icons, Toast
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-  DialogClose,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Heart, Send, Mic, MessageSquare, Plus, Loader2, AlertCircle, UploadCloud } from "lucide-react"; // Added AlertCircle, UploadCloud
-import { toast } from "sonner"; // Assuming you use sonner for notifications
+// src/app/chat/page.jsx
+"use client";
 
-// Define backend URL (MAKE SURE YOUR BACKEND IS RUNNING AT THIS ADDRESS)
-const BACKEND_URL = "http://localhost:3001"; // Your backend server URL
+import React, { useState, useEffect, useRef } from "react";
+import { Heart, Loader2 } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useRouter } from 'next/navigation'; // Import useRouter
+
+import ChatSidebar from "../components/ChatSidebar";
+import ChatMessage from "../components/ChatMessage";
+import ChatInput from "../components/ChatInput";
 
 export default function ChatPage() {
-  // Keep existing state
-  const [chats, setChats] = useState([
-    {
-      id: "1",
-      title: "General Health Advice",
-      messages: [
-        {
-          id: "1",
-          role: "assistant",
-          content: "Hello! I'm your AI health assistant. How can I help you today? You can also upload DICOM scans using the 'Upload Scan' button.", // Updated initial message
-          timestamp: new Date(),
-        },
-      ],
-      timestamp: new Date(),
-    },
-  ]);
-  const [currentChat, setCurrentChat] = useState("1");
+  const [chats, setChats] = useState([]); // Array of chat objects
+  const [currentChat, setCurrentChat] = useState(null); // ID of the current chat
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false); // For AI responses
   const [isListening, setIsListening] = useState(false);
-
-  // --- Add state for Upload feature ---
-  const [isUploading, setIsUploading] = useState(false); // Loading for file upload
-  const [isDialogOpen, setIsDialogOpen] = useState(false); // Control dialog visibility
-  const [selectedFile, setSelectedFile] = useState(null); // Hold the selected file
-  const fileInputRef = useRef(null); // Ref for the file input inside the dialog
-  // --- End Upload feature state ---
+  const scrollRef = useRef(null);
+  const router = useRouter(); // Initialize useRouter
 
   useEffect(() => {
-    // Keep existing initial message logic
-    const initialMessage = localStorage.getItem("initialMessage");
-    if (initialMessage) {
-      // Use a separate function to add messages for cleaner code
-      addMessageAndGetResponse(initialMessage);
-      localStorage.removeItem("initialMessage");
+    const storedChats = localStorage.getItem("chats");
+    if (storedChats) {
+      setChats(JSON.parse(storedChats));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run only once on mount
+  }, []);
 
-  // --- Helper function to add messages to state ---
-  const addMessageToChat = (message, chatId) => {
-    setChats((prevChats) =>
-      prevChats.map((chat) =>
-        chat.id === chatId
-          ? {
-              ...chat,
-              messages: [...chat.messages, message],
-              timestamp: new Date(), // Update chat timestamp on new message
-            }
-          : chat
-      )
-    );
-    // Update chat title if it's the first user message in a "New Chat"
-    setChats((prevChats) =>
-      prevChats.map((chat) => {
-        if (chat.id === chatId && chat.title === "New Chat" && message.role === 'user' && chat.messages.length === 2) { // After initial assistant message + first user message
-            const newTitle = message.content.substring(0, 30) + (message.content.length > 30 ? '...' : '');
-            return { ...chat, title: newTitle };
-        }
-        return chat;
-      })
-    );
-  };
-  // --- End Helper function ---
+  useEffect(() => {
+    if (chats.length === 0) {
+      createNewChat(); // Create a new chat if no chats exist
+    } else if (!currentChat && chats.length > 0) {
+      setCurrentChat(chats[0].id); // Set the current chat to the first one if no currentChat is set
+    }
+  }, [chats]);
 
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  }, [chats, currentChat]);
 
-  // --- Refactored message sending logic ---
-  const addMessageAndGetResponse = (messageContent) => {
-     if (!messageContent.trim() || isLoading || isUploading) return; // Prevent sending while busy
+  useEffect(() => {
+    localStorage.setItem("chats", JSON.stringify(chats));
+  }, [chats]);
 
-    const newMessage = {
+  const handleSendMessage = async (message) => {
+    if (!message.trim()) return;
+  
+    const newUserMessage = {
       id: Date.now().toString(),
       role: "user",
-      content: messageContent,
+      content: message,
       timestamp: new Date(),
     };
-    addMessageToChat(newMessage, currentChat); // Add user message immediately
-    setInput(""); // Clear input
-
-    // Simulate AI response
+  
+    setChats((prevChats) => {
+      return prevChats.map((chat) => {
+        if (chat.id === currentChat) {
+          return { ...chat, messages: [...chat.messages, newUserMessage] };
+        }
+        return chat;
+      });
+    });
+  
+    setInput("");
     setIsLoading(true);
-    setTimeout(() => {
-      const aiResponse = {
-        id: (Date.now() + 1).toString(),
+  
+    try {
+      // Retrieve current chat history
+      const currentChatData = chats.find((chat) => chat.id === currentChat);
+      const chatHistory = currentChatData ? currentChatData.messages : [];
+  
+      // Include the new user message in the chat history
+      const updatedChatHistory = [...chatHistory, newUserMessage];
+  
+      // Map chat history to the format expected by Groq
+      const groqMessages = updatedChatHistory.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+  
+      const response = await fetch("/api/groq", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ messages: groqMessages }), // Send entire history
+      });
+  
+      if (!response.ok) {
+        console.error("API Error:", response.status, response.statusText);
+        throw new Error(`API Error: ${response.statusText}`);
+      }
+  
+      const data = await response.json();
+      const aiResponse = data.response;
+  
+      const newAiMessage = {
+        id: Date.now().toString(),
         role: "assistant",
-        content: generateAIResponse(messageContent), // Use the original message content
+        content: aiResponse,
         timestamp: new Date(),
       };
-      addMessageToChat(aiResponse, currentChat); // Add AI response
+  
+      setChats((prevChats) => {
+        return prevChats.map((chat) => {
+          if (chat.id === currentChat) {
+            return { ...chat, messages: [...chat.messages, newAiMessage] };
+          }
+          return chat;
+        });
+      });
+    } catch (error) {
+      console.error("Error sending message:", error);
+    } finally {
       setIsLoading(false);
-    }, 1000);
-  };
-  // --- End refactored logic ---
-
-  // Update generateAIResponse to mention upload capability
-  const generateAIResponse = (message) => {
-    const lowercaseMessage = message.toLowerCase();
-    if (lowercaseMessage.includes("heart") || lowercaseMessage.includes("chest")) {
-      return "Based on your description, I recommend monitoring your heart rate and consulting with a healthcare provider. Would you like to use our heart rate monitoring feature?";
-    } else if (lowercaseMessage.includes("breath") || lowercaseMessage.includes("breathing")) {
-      return "Breathing issues can be concerning. Let's check your breathing rate using our sensor. Would you like to start a breathing assessment?";
-    } else if (lowercaseMessage.includes("sleep") || lowercaseMessage.includes("tired")) {
-      return "Sleep quality is crucial for health. I can help you track your sleep patterns using our sleep monitoring feature. Would you like to learn more?";
-    } else if (lowercaseMessage.includes("dicom") || lowercaseMessage.includes("x-ray") || lowercaseMessage.includes("ct scan") || lowercaseMessage.includes("mri")) {
-        return "I see you mentioned an imaging scan. You can upload DICOM files using the 'Upload Scan' button below. Once uploaded, I can acknowledge it, but remember I cannot provide diagnostic interpretations. Always consult a qualified radiologist or physician.";
     }
-    return "I understand your health concern. While I can provide general information, please consult with a healthcare professional for personalized medical advice. Would you like to explore our health monitoring features or upload a DICOM image using the 'Upload Scan' button?";
   };
 
   // Update createNewChat for consistency
   const createNewChat = () => {
-    if (isLoading || isUploading) return; // Prevent action while busy
+    // Check if there's a current chat and if it's empty (only has the initial assistant message)
+    if (currentChat) {
+      const currentChatData = chats.find((chat) => chat.id === currentChat);
+      if (
+        currentChatData &&
+        currentChatData.messages.length === 1 &&
+        currentChatData.messages[0].role === "assistant"
+      ) {
+        // Delete the empty previous chat
+        const updatedChats = chats.filter((chat) => chat.id !== currentChat);
+        setChats(updatedChats);
+        localStorage.setItem("chats", JSON.stringify(updatedChats)); // Update localStorage
+      }
+    }
+
     const newChatId = Date.now().toString();
     const newChat = {
       id: newChatId,
-      title: "New Chat", // Start with generic title
+      title: "New Chat",
       messages: [
         {
           id: Date.now().toString(),
@@ -150,20 +152,18 @@ export default function ChatPage() {
       ],
       timestamp: new Date(),
     };
-
-    setChats((prev) => [newChat, ...prev]); // Add to top
+    setChats((prev) => [newChat, ...prev]);
     setCurrentChat(newChatId);
   };
-
-  // Update handleVoiceInput with toast and guards
   const handleVoiceInput = async () => {
     if (isLoading || isUploading || isListening) return; // Prevent action while busy
 
     if (!("webkitSpeechRecognition" in window)) {
-      toast.error("Speech Recognition Not Available: Your browser doesn't support speech recognition.");
+      alert(
+        "Speech Recognition Not Available: Your browser doesn't support speech recognition."
+      );
       return;
     }
-
     try {
       const SpeechRecognition = window.webkitSpeechRecognition;
       const recognition = new SpeechRecognition();
@@ -276,36 +276,13 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-screen bg-background">
-      {/* Sidebar - Added flex-col and flex-grow/h-0 for proper scroll */}
-      <div className="w-64 border-r bg-muted/30 flex flex-col">
-        <div className="p-4">
-          <Button
-            className="w-full justify-start space-x-2"
-            onClick={createNewChat}
-            disabled={isLoading || isUploading || isListening} // Add disabled states
-          >
-            <Plus size={16} />
-            <span>New chat</span>
-          </Button>
-        </div>
-        <Separator />
-        <ScrollArea className="flex-grow h-0"> {/* Ensure ScrollArea fills space */}
-          <div className="p-2 space-y-2">
-            {chats.map((chat) => (
-              <Button
-                key={chat.id}
-                variant={chat.id === currentChat ? "secondary" : "ghost"}
-                className="w-full justify-start space-x-2"
-                onClick={() => setCurrentChat(chat.id)}
-                disabled={isLoading || isUploading || isListening} // Add disabled states
-              >
-                <MessageSquare size={16} />
-                <span className="truncate">{chat.title}</span>
-              </Button>
-            ))}
-          </div>
-        </ScrollArea>
-      </div>
+      {/* Sidebar */}
+      <ChatSidebar
+        chats={chats}
+        currentChat={currentChat}
+        onChatClick={setCurrentChat}
+        onNewChatClick={createNewChat}
+      />
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
@@ -319,35 +296,11 @@ export default function ChatPage() {
           </div>
         </header>
 
-        {/* Messages - Update styling for system/error messages */}
-        <ScrollArea className="flex-1 p-4">
+        {/* Messages */}
+        <ScrollArea className="flex-1 p-4" ref={scrollRef}>
           <div className="max-w-3xl mx-auto space-y-4">
             {currentChatData?.messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${
-                   message.role === 'assistant' || message.role === 'system' ? 'justify-start' : 'justify-end'
-                }`}
-              >
-                <div
-                  // Adjusted styling for better appearance and added system/error styles
-                  className={`rounded-lg p-3 max-w-[80%] shadow-sm ${ // Reduced padding slightly
-                    message.role === 'assistant'
-                      ? 'bg-muted'
-                      : message.role === 'user'
-                      ? 'bg-primary text-primary-foreground'
-                      : message.role === 'system' && message.isError // Style for system errors
-                      ? 'bg-destructive/10 border border-destructive/30 text-destructive-foreground flex items-center gap-2' // Error style
-                       : message.role === 'system' // Style for system messages (e.g., upload success)
-                       ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 text-sm italic' // Info style
-                      : 'bg-muted' // Default fallback
-                  }`}
-                >
-                  {/* Add icon for error messages */}
-                  {message.role === 'system' && message.isError && <AlertCircle className="h-4 w-4 flex-shrink-0" />}
-                  <span>{message.content}</span>
-                </div>
-              </div>
+              <ChatMessage key={message.id} message={message} />
             ))}
             {/* AI Loading indicator */}
             {isLoading && (
@@ -361,106 +314,15 @@ export default function ChatPage() {
           </div>
         </ScrollArea>
 
-        {/* Input Area - Added Dialog and Upload Button */}
-        <div className="border-t p-4 bg-background">
-          <div className="max-w-3xl mx-auto flex items-center space-x-2">
-            {/* --- DICOM Upload Dialog --- */}
-            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                 <DialogTrigger asChild>
-                     <Button
-                         variant="outline"
-                         disabled={isUploading || isLoading || isListening} // Disable trigger when busy
-                         aria-label="Upload DICOM file"
-                     >
-                         <UploadCloud className="h-5 w-5 mr-2" />
-                         Upload Scan
-                     </Button>
-                 </DialogTrigger>
-                 <DialogContent className="sm:max-w-[425px]">
-                     <DialogHeader>
-                         <DialogTitle>Upload DICOM Image</DialogTitle>
-                         <DialogDescription>
-                             Select a DICOM (.dcm) file to upload. It will be sent to the secure Healthcare API.
-                         </DialogDescription>
-                     </DialogHeader>
-                     <div className="grid gap-4 py-4">
-                         <div className="grid grid-cols-4 items-center gap-4">
-                             <Label htmlFor="dicom-file-input" className="text-right">
-                                 File
-                             </Label>
-                             <Input
-                                 id="dicom-file-input" // Unique ID for the label
-                                 type="file"
-                                 ref={fileInputRef}
-                                 className="col-span-3"
-                                 accept="application/dicom,.dcm" // Specify types
-                                 onChange={handleFileSelectionChange}
-                                 disabled={isUploading} // Disable input during upload
-                             />
-                         </div>
-                         {selectedFile && (
-                            <div className="text-sm text-muted-foreground col-start-2 col-span-3">
-                                Selected: {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
-                            </div>
-                         )}
-                     </div>
-                     <DialogFooter>
-                         <DialogClose asChild>
-                              <Button type="button" variant="outline" disabled={isUploading}>
-                                Cancel
-                              </Button>
-                         </DialogClose>
-                         <Button
-                             type="button"
-                             onClick={handleInitiateUpload}
-                             disabled={!selectedFile || isUploading} // Disable if no file or uploading
-                         >
-                             {isUploading ? (
-                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                             ) : null}
-                             Upload File
-                         </Button>
-                     </DialogFooter>
-                 </DialogContent>
-             </Dialog>
-            {/* --- End Dialog --- */}
-
-            <Input
-              className="flex-1" // Ensure input takes remaining space
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Type your health question..."
-              onKeyPress={(e) => {
-                 // Send on Enter, allow Shift+Enter for newline
-                 if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault(); // Prevent newline on Enter
-                    addMessageAndGetResponse(input); // Use the refactored function
-                 }
-              }}
-              disabled={isUploading || isLoading || isListening} // Disable input when busy
-            />
-            <Button
-                variant="outline"
-                size="icon"
-                onClick={handleVoiceInput}
-                disabled={isListening || isUploading || isLoading} // Consistent disabled check
-                aria-label="Use microphone"
-            >
-              {isListening ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <Mic className="h-5 w-5" />
-              )}
-            </Button>
-            <Button
-                onClick={() => addMessageAndGetResponse(input)} // Use the refactored function
-                disabled={!input.trim() || isLoading || isUploading || isListening} // Consistent disabled check
-                aria-label="Send message"
-            >
-              <Send className="h-5 w-5" />
-            </Button>
-          </div>
-        </div>
+        {/* Input Area */}
+        <ChatInput
+          input={input}
+          setInput={setInput}
+          onSendMessage={handleSendMessage}
+          onVoiceInput={handleVoiceInput}
+          isLoading={isLoading}
+          isListening={isListening}
+        />
       </div>
       {/* REMINDER: Add <Toaster /> from sonner to your app's root layout (e.g., layout.js) */}
       {/* <Toaster position="top-center" richColors /> */}

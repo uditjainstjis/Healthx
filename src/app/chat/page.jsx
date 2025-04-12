@@ -1,5 +1,7 @@
-'use client'
-import React, { useState, useEffect } from "react";
+// src/app/chat/page.jsx (or .tsx)
+"use client";
+
+import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -7,98 +9,105 @@ import { Separator } from "@/components/ui/separator";
 import { Heart, Send, Mic, MessageSquare, Plus, Loader2 } from "lucide-react";
 
 export default function ChatPage() {
-  const [chats, setChats] = useState([
-    {
-      id: "1",
-      title: "General Health Advice",
-      messages: [
-        {
-          id: "1",
-          role: "assistant",
-          content: "Hello! I'm your AI health assistant. How can I help you today?",
-          timestamp: new Date(),
-        },
-      ],
-      timestamp: new Date(),
-    },
-  ]);
-  const [currentChat, setCurrentChat] = useState("1");
+  const [chats, setChats] = useState([]); // Array of chat objects
+  const [currentChat, setCurrentChat] = useState(null); // ID of the current chat
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const scrollRef = useRef(null);
 
   useEffect(() => {
-    // Check for initial message from home page
-    const initialMessage = localStorage.getItem("initialMessage");
-    if (initialMessage) {
-      handleSendMessage(initialMessage);
-      localStorage.removeItem("initialMessage");
+    const storedChats = localStorage.getItem('chats');
+    if (storedChats) {
+      setChats(JSON.parse(storedChats));
+    } else {
+      // Create a default chat if there are no existing chats
+      createNewChat();
     }
   }, []);
 
-  const handleSendMessage = (message) => {
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  }, [chats, currentChat]);
+
+
+  useEffect(() => {
+    localStorage.setItem('chats', JSON.stringify(chats));
+  }, [chats]);
+
+  const handleSendMessage = async (message) => {
     if (!message.trim()) return;
 
-    const newMessage = {
+    // Add user message to the current chat
+    const newUserMessage = {
       id: Date.now().toString(),
       role: "user",
       content: message,
       timestamp: new Date(),
     };
 
-    setChats((prevChats) =>
-      prevChats.map((chat) =>
-        chat.id === currentChat
-          ? {
-              ...chat,
-              messages: [...chat.messages, newMessage],
-            }
-          : chat
-      )
-    );
-
-    // Simulate AI response with loading state
-    setIsLoading(true);
-    setTimeout(() => {
-      const aiResponse = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: generateAIResponse(message),
-        timestamp: new Date(),
-      };
-
-      setChats((prevChats) =>
-        prevChats.map((chat) =>
-          chat.id === currentChat
-            ? {
-                ...chat,
-                messages: [...chat.messages, aiResponse],
-              }
-            : chat
-        )
-      );
-      setIsLoading(false);
-    }, 1000);
+    setChats((prevChats) => {
+      return prevChats.map((chat) => {
+        if (chat.id === currentChat) {
+          return { ...chat, messages: [...chat.messages, newUserMessage] };
+        }
+        return chat;
+      });
+    });
 
     setInput("");
-  };
+    setIsLoading(true);
 
-  const generateAIResponse = (message) => {
-    // Simulate AI response based on keywords
-    const lowercaseMessage = message.toLowerCase();
-    if (lowercaseMessage.includes("heart") || lowercaseMessage.includes("chest")) {
-      return "Based on your description, I recommend monitoring your heart rate and consulting with a healthcare provider. Would you like to use our heart rate monitoring feature?";
-    } else if (lowercaseMessage.includes("breath") || lowercaseMessage.includes("breathing")) {
-      return "Breathing issues can be concerning. Let's check your breathing rate using our sensor. Would you like to start a breathing assessment?";
-    } else if (lowercaseMessage.includes("sleep") || lowercaseMessage.includes("tired")) {
-      return "Sleep quality is crucial for health. I can help you track your sleep patterns using our sleep monitoring feature. Would you like to learn more?";
+    try {
+      const response = await fetch("/api/medlm", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: message }),
+      });
+
+      if (!response.ok) {
+        console.error("API Error:", response.status, response.statusText);
+        // Display an error message to the user (consider using a state variable for this)
+        throw new Error(`API Error: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const aiResponse = data.response; // Adjust based on the API response
+
+      const newAiMessage = {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: aiResponse,
+        timestamp: new Date(),
+      };
+      setChats((prevChats) => {
+        return prevChats.map((chat) => {
+          if (chat.id === currentChat) {
+            return { ...chat, messages: [...chat.messages, newAiMessage] };
+          }
+          return chat;
+        });
+      });
+    } catch (error) {
+      console.error("Error sending message:", error);
+      // Handle the error (e.g., display an error message to the user)
+    } finally {
+      setIsLoading(false);
     }
-    return "I understand your health concern. While I can provide general information, please consult with a healthcare professional for personalized medical advice. Would you like to explore our health monitoring features?";
   };
 
   const createNewChat = () => {
+    const newChatId = Date.now().toString();
     const newChat = {
-      id: Date.now().toString(),
+      id: newChatId,
       title: "New Chat",
       messages: [
         {
@@ -110,17 +119,17 @@ export default function ChatPage() {
       ],
       timestamp: new Date(),
     };
-
     setChats((prev) => [newChat, ...prev]);
-    setCurrentChat(newChat.id);
+    setCurrentChat(newChatId);
   };
 
   const handleVoiceInput = async () => {
     if (!("webkitSpeechRecognition" in window)) {
-      alert("Speech Recognition Not Available: Your browser doesn't support speech recognition.");
+      alert(
+        "Speech Recognition Not Available: Your browser doesn't support speech recognition."
+      );
       return;
     }
-
     try {
       const SpeechRecognition = window.webkitSpeechRecognition;
       const recognition = new SpeechRecognition();
@@ -161,7 +170,10 @@ export default function ChatPage() {
       {/* Sidebar */}
       <div className="w-64 border-r bg-muted/30">
         <div className="p-4">
-          <Button className="w-full justify-start space-x-2" onClick={createNewChat}>
+          <Button
+            className="w-full justify-start space-x-2"
+            onClick={createNewChat}
+          >
             <Plus size={16} />
             <span>New chat</span>
           </Button>
@@ -195,7 +207,7 @@ export default function ChatPage() {
         </header>
 
         {/* Messages */}
-        <ScrollArea className="flex-1 p-4">
+        <ScrollArea className="flex-1 p-4" ref={scrollRef}>
           <div className="max-w-3xl mx-auto space-y-4">
             {currentChatData?.messages.map((message) => (
               <div
@@ -234,14 +246,22 @@ export default function ChatPage() {
               placeholder="Type your health question..."
               onKeyPress={(e) => e.key === "Enter" && handleSendMessage(input)}
             />
-            <Button variant="outline" size="icon" onClick={handleVoiceInput} disabled={isListening}>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handleVoiceInput}
+              disabled={isListening}
+            >
               {isListening ? (
                 <Loader2 className="h-5 w-5 animate-spin" />
               ) : (
                 <Mic className="h-5 w-5" />
               )}
             </Button>
-            <Button onClick={() => handleSendMessage(input)} disabled={!input.trim() || isLoading}>
+            <Button
+              onClick={() => handleSendMessage(input)}
+              disabled={!input.trim() || isLoading}
+            >
               <Send className="h-5 w-5" />
             </Button>
           </div>

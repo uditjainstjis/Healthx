@@ -26,7 +26,7 @@ const SCAN_TYPES = {
 
 // Map scan types to API endpoints
 const API_ENDPOINTS = {
-    [SCAN_TYPES.FACE]: '/api/gemini',
+    [SCAN_TYPES.FACE]: '/api/gemini-face',
     [SCAN_TYPES.XRAY]: '/api/gemini-xray',
     [SCAN_TYPES.MRI]: '/api/gemini-mri',
     [SCAN_TYPES.CT]: '/api/gemini-ct',

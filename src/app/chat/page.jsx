@@ -216,77 +216,6 @@ export default function ChatPage() {
     }
   };
 
-  // --- Add DICOM Upload Handlers ---
-  const handleFileSelectionChange = (event) => {
-    const file = event.target.files?.[0];
-    if (file) {
-        if (!file.name.toLowerCase().endsWith('.dcm') && file.type !== 'application/dicom') {
-             toast.warning("Warning: Selected file might not be a DICOM (.dcm) file. Upload attempt will proceed.");
-        }
-        setSelectedFile(file);
-    } else {
-        setSelectedFile(null);
-    }
-  };
-
-  const handleInitiateUpload = () => {
-    if (!selectedFile) {
-      toast.error("Please select a DICOM file first.");
-      return;
-    }
-    handleDicomUpload(selectedFile);
-  };
-
-  const handleDicomUpload = async (file) => {
-    setIsUploading(true);
-    const uploadToastId = toast.loading(`Uploading ${file.name}...`);
-    const formData = new FormData();
-    formData.append('dicomFile', file);
-
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/dicom/upload`, {
-        method: 'POST',
-        body: formData,
-      });
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || `HTTP error! status: ${response.status}`);
-      }
-
-      toast.success(`Successfully uploaded ${file.name}.`, { id: uploadToastId });
-      setIsDialogOpen(false);
-      setSelectedFile(null);
-
-      const systemMessage = {
-        id: Date.now().toString(),
-        role: "system",
-        content: `Successfully uploaded DICOM file: ${file.name}. A healthcare professional should review this image.`,
-        timestamp: new Date(),
-      };
-      addMessageToChat(systemMessage, currentChat);
-
-    } catch (error) {
-      console.error("DICOM Upload Error:", error);
-      toast.error(`Upload failed: ${error.message}`, { id: uploadToastId });
-
-      const errorMessage = {
-        id: Date.now().toString(),
-        role: "system",
-        content: `Failed to upload DICOM file: ${file.name}. Error: ${error.message}`,
-        timestamp: new Date(),
-        isError: true, // Flag for styling
-      };
-      addMessageToChat(errorMessage, currentChat);
-    } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) {
-          fileInputRef.current.value = ""; // Reset file input
-      }
-    }
-  };
-  // --- End DICOM Upload Handlers ---
-
   const currentChatData = chats.find((chat) => chat.id === currentChat);
 
   return (
@@ -325,7 +254,6 @@ export default function ChatPage() {
                 </div>
               </div>
             )}
-            {/* Note: Upload indicator is in the Dialog footer now */}
           </div>
         </ScrollArea>
 
@@ -340,8 +268,7 @@ export default function ChatPage() {
         />
       </div>
 
-      {/* REMINDER: Add <Toaster /> from sonner to your app's root layout (e.g., layout.js) */}
-      {/* <Toaster position="top-center" richColors /> */}
+
     </div>
   );
 }

@@ -128,15 +128,15 @@ export default function TabsComp({ handleCameraClick, handleSensorClick }) {
     return (
         <section className="container mx-auto px-4 py-12">
             <Tabs defaultValue="sensors" className="max-w-4xl mx-auto">
-                <TabsList className="grid w-full grid-cols-3 mb-8">
+                <TabsList className="grid w-full grid-cols-2 mb-8">
                     <TabsTrigger value="sensors">Sensor-based Scanning</TabsTrigger>
-                    <TabsTrigger value="camera">Camera-based Analysis</TabsTrigger>
+
                     <TabsTrigger value="reports">Scan-reports Analysis</TabsTrigger>
                 </TabsList>
 
                 {/* Sensor Content (no changes needed here) */}
                 <TabsContent value="sensors">
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
                   {[
                     { icon: Heart, label: "Heart Rate", description: "Monitor your heart rate in real-time" },
                   ].map((item, index) => (
@@ -148,17 +148,11 @@ export default function TabsComp({ handleCameraClick, handleSensorClick }) {
                     >
                       <item.icon className="h-8 w-8" />
                       <span className="font-medium">{item.label}</span>
-                      <span className="text-xs text-muted-foreground">{item.description}</span>
+                      <span className="text-xs text-muted-foreground text-wrap">{item.description}</span>
                     </Button>
                   ))}
-                </div>
-                    {/* ... existing sensor buttons ... */}
-                </TabsContent>
 
-                {/* Camera Content - Face scan uses the generic handler now */}
-                <TabsContent value="camera">
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                        {[
+{[
                             { icon: ScanFaceIcon, label: "Checkup via Face", description: "Take photos for analysis" },
                         ].map((item, index) => (
                             <Button
@@ -178,7 +172,8 @@ export default function TabsComp({ handleCameraClick, handleSensorClick }) {
                                 <span className="text-xs text-muted-foreground">{item.description}</span>
                             </Button>
                         ))}
-                    </div>
+                </div>
+                    {/* ... existing sensor buttons ... */}
                 </TabsContent>
 
                 {/* Reports Content - Hook up new scan types */}

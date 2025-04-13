@@ -121,7 +121,7 @@ export default function Home() {
           </h2> */}
 
           {/* Card explaining how the app works */}
-          <Link href="/#features" passHref legacyBehavior>
+          <Link href="/#features" >
             <Card className="cursor-pointer hover:shadow-lg hover:border-primary/20 dark:hover:border-primary/40 transition-all duration-300 ease-in-out overflow-hidden mb-8">
               <CardHeader>
                 <CardTitle className="flex items-center text-xl">

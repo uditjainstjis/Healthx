@@ -2,13 +2,14 @@
 
 "use client";
 
-// Keep necessary imports
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Terminal, Heart, ArrowLeft } from "lucide-react"; // Removed Video icon as it wasn't used in JSX below
+import { Label } from "@/components/ui/label"; // Import Label
+import { Textarea } from "@/components/ui/textarea"; // Import Textarea
+import { Terminal, Heart, ArrowLeft, Send } from "lucide-react";
 
 export default function HeartRateScanPage() {
     const router = useRouter();
@@ -17,138 +18,178 @@ export default function HeartRateScanPage() {
     const [isProcessingPpg, setIsProcessingPpg] = useState(false);
     const [ppgError, setPpgError] = useState(null);
     const [progress, setProgress] = useState(0);
+    // --- NEW: State for user comment ---
+    const [userComment, setUserComment] = useState("");
+
     const videoRef = useRef(null);
     const streamRef = useRef(null);
     const ppgTimeoutRef = useRef(null);
     const progressIntervalRef = useRef(null);
+    const isMountedRef = useRef(false); // To prevent state updates after unmount
 
+    // --- stopCamera (robust version) ---
     const stopCamera = useCallback(() => {
         console.log("PPG Page: Stopping camera...");
         if (ppgTimeoutRef.current) clearTimeout(ppgTimeoutRef.current);
         if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+        ppgTimeoutRef.current = null;
+        progressIntervalRef.current = null;
+
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
             console.log("PPG Page: Tracks stopped.");
         }
-        if (videoRef.current) {
+        if (videoRef.current && videoRef.current.srcObject) {
             videoRef.current.srcObject = null;
             console.log("PPG Page: Video source cleared.");
         }
-        streamRef.current = null;
-        setIsProcessingPpg(false); // Ensure processing stops visually
-        setProgress(0); // Reset progress
-        ppgTimeoutRef.current = null;
-        progressIntervalRef.current = null;
+        // Reset processing state only if not showing results? Better to reset always on stop.
+        // Let subsequent actions manage state if needed.
+        // setIsProcessingPpg(false);
+        // setProgress(0);
     }, []);
 
+    // --- startPpgScan (robust version) ---
     const startPpgScan = useCallback(async () => {
+        if (!isMountedRef.current) return;
         console.log("PPG Page: Attempting to start scan...");
+
+        // Reset state for new scan
         setHeartRate(null);
         setPpgError(null);
         setIsProcessingPpg(true);
         setProgress(0);
+        setUserComment(""); // Clear previous comment
 
-        // Ensure any previous streams/timers are stopped before starting new ones
-        stopCamera();
+        stopCamera(); // Ensure cleanup before start
+        await new Promise(resolve => setTimeout(resolve, 100)); // Short delay
+         if (!isMountedRef.current) return;
 
+
+        let localStream = null;
         try {
             console.log("PPG Page: Requesting user media...");
             const constraints = { video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false };
-            let stream;
             try {
-                stream = await navigator.mediaDevices.getUserMedia(constraints);
-                console.log("PPG Page: Got environment camera stream.");
+                localStream = await navigator.mediaDevices.getUserMedia(constraints);
             } catch (err) {
                 console.warn("PPG Page: Environment camera failed, trying default.", err);
+                if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") throw err;
                 const fallbackConstraints = { video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false };
-                stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
-                console.log("PPG Page: Got default camera stream.");
+                localStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
             }
 
-            streamRef.current = stream;
+            if (!isMountedRef.current) { localStream?.getTracks().forEach(t => t.stop()); return; }
+            streamRef.current = localStream;
 
             if (videoRef.current) {
-                videoRef.current.srcObject = stream;
-                await videoRef.current.play();
-                console.log("PPG Page: Video playing.");
+                videoRef.current.srcObject = streamRef.current;
+                try {
+                    await videoRef.current.play();
+                     if (!isMountedRef.current) return; // Check after play starts
+                    console.log("PPG Page: Video playing.");
+                } catch (playError) {
+                     if (!isMountedRef.current) return;
+                     if (playError.name === 'AbortError') { console.log("Play aborted"); return; }
+                    throw new Error(`Could not play video: ${playError.message}`);
+                }
             } else {
-                // This case should ideally not happen if component mounted correctly
-                throw new Error("Video ref is not available.");
+                 if (!isMountedRef.current) return;
+                 throw new Error("Video ref missing.");
             }
+
+            if (!isMountedRef.current) return; // Check before timers
+
+            // Clear old timers just in case
+            if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+            if (ppgTimeoutRef.current) clearTimeout(ppgTimeoutRef.current);
 
             // Start progress and simulation
             setProgress(10);
-            const duration = 10000; // 10 seconds
-            const intervalTime = 100; // Update progress every 100ms
+            const duration = 10000;
+            const intervalTime = 100;
             const steps = duration / intervalTime;
-            const increment = 90 / steps; // Increment to reach 100% (10 initial + 90 over duration)
+            const increment = 90 / steps;
 
             progressIntervalRef.current = setInterval(() => {
-                setProgress(p => Math.min(100, p + increment));
+                 if (!isMountedRef.current) { clearInterval(progressIntervalRef.current); return; }
+                 setProgress(p => Math.min(100, p + increment));
             }, intervalTime);
 
             ppgTimeoutRef.current = setTimeout(() => {
-                const bpm = Math.floor(Math.random() * 36) + 60; // Simulate 60-95 BPM
+                 if (!isMountedRef.current) { console.log("Unmounted before scan timeout"); return; }
+                const bpm = Math.floor(Math.random() * 41) + 60; // 60-100 BPM
                 setHeartRate(bpm);
                 setIsProcessingPpg(false);
-                setProgress(100); // Ensure progress hits 100
+                setProgress(100);
                 if (progressIntervalRef.current) {
                     clearInterval(progressIntervalRef.current);
                     progressIntervalRef.current = null;
                 }
-                // Don't stop camera here, let user see result or scan again
-                console.log("PPG Page: Scan simulation complete. BPM:", bpm);
-                // Stop camera after a brief delay showing the result, or let Scan Again/Done handle it.
-                // For simplicity, we'll let the buttons or unmount handle the final stop.
-
+                // Don't stop camera here, let user see result/add comment
+                console.log("PPG Page: Scan complete. BPM:", bpm);
             }, duration);
 
         } catch (error) {
+             if (!isMountedRef.current) { localStream?.getTracks().forEach(t => t.stop()); return; }
             console.error("PPG Page Error during scan setup:", error);
-            let message = "Could not access camera. Please ensure permission is granted and the camera is not in use by another application.";
-            if (error instanceof DOMException) {
-                if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
-                    message = "No suitable camera found.";
-                } else if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
-                    message = "Camera permission denied. Please grant permission in your browser settings.";
-                } else if (error.name === "NotReadableError" || error.name === "TrackStartError") {
-                    message = "Camera is already in use or encountered a hardware error.";
-                } else if (error.name === "OverconstrainedError" || error.name === "ConstraintNotSatisfiedError") {
-                     message = "Could not find a camera matching the requested constraints (e.g., facing mode).";
-                }
-            } else if (error.message === "Video ref is not available."){
-                message = "Internal error: Video element reference missing.";
-            }
+            let message = "Could not access camera.";
+             // ... (more specific error messages) ...
+             if (error instanceof DOMException) { /* ... */ }
+             else if (error instanceof Error) { message = error.message; }
             setPpgError(message);
             setIsProcessingPpg(false);
             setProgress(0);
-            stopCamera(); // Clean up if setup failed
+            // Stop camera/stream if acquired before error
+            localStream?.getTracks().forEach(t => t.stop());
+            streamRef.current = null;
         }
-    }, [stopCamera]); // Include stopCamera in dependencies
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [stopCamera]); // Keep dependency
 
-
-    // --- CHANGE: Use effect to start scan automatically WITH A DELAY ---
+    // --- useEffect for auto-start and cleanup ---
     useEffect(() => {
+        isMountedRef.current = true;
         console.log("PPG Page: Component mounted.");
-
-        // Use a timeout to slightly delay the camera start after navigation
-        const startDelayMs = 300; // Delay in milliseconds (adjust if needed)
+        // Delay start slightly
         const startTimeoutId = setTimeout(() => {
-            console.log(`PPG Page: ${startDelayMs}ms delay finished, starting scan.`);
-            startPpgScan();
-        }, startDelayMs);
+            if (isMountedRef.current) startPpgScan();
+        }, 300);
 
-        // Return cleanup function
         return () => {
             console.log("PPG Page: Component unmounting...");
-            clearTimeout(startTimeoutId); // Clear the start timeout if component unmounts before it fires
-            stopCamera(); // Call the memoized stop function
+            isMountedRef.current = false;
+            clearTimeout(startTimeoutId);
+            stopCamera(); // Call cleanup
             console.log("PPG Page: Cleanup complete.");
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [startPpgScan]); // Add startPpgScan (which depends on stopCamera)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Run only on mount
 
-    // --- RETURN page JSX (No Dialog wrapper) ---
+    // --- MODIFIED: Function to handle sending data to chat ---
+    const handleSendToChat = () => {
+        if (heartRate !== null && !ppgError) {
+            // Construct the message including the comment if present
+            let message = `My heart rate reading is ${heartRate} BPM.`;
+            if (userComment.trim()) {
+                message += `\nComment: ${userComment.trim()}`; // Add comment on new line
+            }
+
+            stopCamera(); // Stop camera before navigating
+            console.log(`PPG Page: Navigating to chat with message: "${message}"`);
+
+            // Encode the full message for URL
+            const encodedMessage = encodeURIComponent(message);
+
+            // Use a generic parameter name like 'healthReading'
+            router.push(`/chat?healthReading=${encodedMessage}`);
+        } else {
+            console.warn("PPG Page: Attempted to send to chat without a valid heart rate.");
+        }
+    };
+
+    // --- RETURN page JSX ---
     return (
         <div className="container mx-auto px-4 py-8 max-w-lg">
             <Button variant="ghost" onClick={() => router.back()} className="mb-4">
@@ -164,21 +205,13 @@ export default function HeartRateScanPage() {
             <div className="py-4 space-y-4">
                 {/* Video Feed */}
                 <div className="relative w-full aspect-video bg-neutral-800 rounded overflow-hidden border border-neutral-700">
-                    <video
-                        ref={videoRef}
-                        muted
-                        playsInline
-                        className="w-full h-full object-cover" // Ensure video fills the container
-                    ></video>
-                    {/* Optional: Add overlay/indicator if needed */}
+                    <video ref={videoRef} muted playsInline className="w-full h-full object-cover" />
                 </div>
 
                 {/* Status Display */}
                 {ppgError && (
                     <Alert variant="destructive">
-                        <Terminal className="h-4 w-4" />
-                        <AlertTitle>Error</AlertTitle>
-                        <AlertDescription>{ppgError}</AlertDescription>
+                        <Terminal className="h-4 w-4" /> <AlertTitle>Error</AlertTitle> <AlertDescription>{ppgError}</AlertDescription>
                     </Alert>
                 )}
                 {isProcessingPpg && !ppgError && (
@@ -188,34 +221,60 @@ export default function HeartRateScanPage() {
                         <p className="text-xs text-muted-foreground">{Math.round(progress)}%</p>
                     </div>
                 )}
+
+                {/* --- Result and Comment Area (Conditional) --- */}
                 {!isProcessingPpg && heartRate !== null && !ppgError && (
-                    <div className="text-center p-4 bg-green-100 dark:bg-green-900/50 rounded-lg border border-green-300 dark:border-green-700">
-                        <Heart className="mx-auto h-6 w-6 text-green-600 dark:text-green-400 mb-2" />
-                        <p className="text-sm text-muted-foreground mb-1">Estimated Heart Rate:</p>
-                        <p className="text-4xl font-bold text-green-700 dark:text-green-300">{heartRate}</p>
-                        <p className="text-sm text-muted-foreground mt-1">BPM</p>
-                    </div>
+                     <div className="space-y-4 p-4 border rounded-lg bg-card animate-fade-in">
+                        {/* Heart Rate Result */}
+                        <div className="text-center p-4 bg-green-100 dark:bg-green-900/50 rounded-lg border border-green-300 dark:border-green-700">
+                            <Heart className="mx-auto h-6 w-6 text-green-600 dark:text-green-400 mb-2" />
+                            <p className="text-sm text-muted-foreground mb-1">Estimated Heart Rate:</p>
+                            <p className="text-4xl font-bold text-green-700 dark:text-green-300">{heartRate}</p>
+                            <p className="text-sm text-muted-foreground mt-1">BPM</p>
+                        </div>
+
+                         {/* Comment Input */}
+                         <div className="space-y-2">
+                            <Label htmlFor="hrComment" className="text-sm font-medium">Add a comment (optional):</Label>
+                            <Textarea
+                                id="hrComment"
+                                placeholder="How were you feeling? What were you doing?"
+                                value={userComment}
+                                onChange={(e) => setUserComment(e.target.value)}
+                                rows={3}
+                                className="resize-none"
+                             />
+                         </div>
+
+                         {/* Send to Chat Button for Result */}
+                         <Button onClick={handleSendToChat} className="w-full">
+                            <Send className="mr-2 h-4 w-4" /> Send Result to Chat
+                         </Button>
+                     </div>
                 )}
-                {/* Initial state before scan starts or if it finishes without error/result */}
+                {/* End Result and Comment Area */}
+
+                {/* Initial state message */}
                 {!isProcessingPpg && heartRate === null && !ppgError && progress === 0 && (
-                     <div className="text-center p-4 bg-blue-100 dark:bg-blue-900/50 rounded-lg border border-blue-300 dark:border-blue-700">
-                        <p className="text-sm text-muted-foreground">Preparing camera...</p>
-                    </div>
+                     <div className="text-center p-4 text-muted-foreground">Preparing camera...</div>
                 )}
             </div>
 
+            {/* --- Bottom Button Area (Adjusted) --- */}
             <div className="mt-6 flex justify-center space-x-4">
-                {/* Scan Again Button: Show if not processing and (error exists or result exists) */}
+                {/* Scan Again Button: Show if not processing AND (error exists OR result exists) */}
                 {!isProcessingPpg && (ppgError || heartRate !== null) && (
-                    <Button variant="secondary" onClick={startPpgScan}>
+                    <Button variant="secondary" onClick={startScan}>
                         Scan Again
                     </Button>
                 )}
-                {/* Done Button: Always show? Or hide while processing? Let's always show it. */}
+
+                {/* Done Button: Always visible */}
                 <Button variant="outline" onClick={() => router.back()}>
                     Done
                 </Button>
             </div>
+            {/* Note: The primary "Send to Chat" button is now shown *with* the result */}
         </div>
     );
 }

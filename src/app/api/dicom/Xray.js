@@ -38,7 +38,7 @@ export default function Xray() {
       timestamp: new Date(),
     },
   ]);
-  
+
   const [currentChat, setCurrentChat] = useState("1");
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false); // Loading for AI response
@@ -133,7 +133,7 @@ useEffect(() => {
         {
           id: Date.now().toString(),
           role: "assistant",
-          content: "Hello! How can I assist you with your health today? Feel free to ask questions or upload a DICOM image.",
+          content: "Hello! How can I assist you with your health today?",
           timestamp: new Date(),
         },
       ],

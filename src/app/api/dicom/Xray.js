@@ -47,13 +47,14 @@ export default function Xray() {
   const [selectedFile, setSelectedFile] = useState(null); // State to hold the selected file
   const fileInputRef = useRef(null); // Ref for the file input inside the dialog
 
-  useEffect(() => {
-    const initialMessage = localStorage.getItem("initialMessage");
-    if (initialMessage) {
-      handleSendMessage(initialMessage);
-      localStorage.removeItem("initialMessage");
-    }
-  }, []);
+// eslint-disable-next-line react-hooks/exhaustive-deps
+useEffect(() => {
+  const initialMessage = localStorage.getItem("initialMessage");
+  if (initialMessage) {
+    handleSendMessage(initialMessage);
+    localStorage.removeItem("initialMessage");
+  }
+}, []);
 
   // Function to add a message to the current chat
   const addMessageToChat = (message) => {

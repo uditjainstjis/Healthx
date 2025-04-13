@@ -114,9 +114,6 @@ export default function Home() {
               {[
                 { icon: Heart, label: "Heart Rate", description: "Monitor your heart rate in real-time" },
                 { icon: Lungs, label: "Breath Rate", description: "Track your breathing patterns" },
-                { icon: Footprints, label: "Step Count", description: "Daily activity monitoring" },
-                { icon: Moon, label: "Sleep Tracking", description: "Analyze your sleep quality" },
-                { icon: Droplets, label: "SPO₂", description: "Measure oxygen saturation" },
               ].map((item, index) => (
                 <Button
                   key={index}

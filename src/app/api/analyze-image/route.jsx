@@ -1,114 +1,115 @@
-import formidable from 'formidable';
-import fs from 'fs';
-import OpenAI from 'openai';
-import { NextResponse } from 'next/server';
+// src/app/analysis-result/page.js
+'use client'; // Required for useState, useEffect, sessionStorage
 
-// Ensure the API key is defined
-const apiKey = process.env.OPENAI_API_KEY;
-if (!apiKey) {
-    console.error("OPENAI_API_KEY is not set in environment variables.");
-    process.exit(1); // Exit if the API key is not defined
-}
+import { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"; // Assuming you use shadcn/ui cards
+import Image from 'next/image'; // Use Next.js Image for optimization if possible
 
-const openai = new OpenAI({ apiKey });
+export default function AnalysisResultPage() {
+    const [analysis, setAnalysis] = useState('');
+    const [imageData, setImageData] = useState('');
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState('');
 
-// No config needed here.
-// export const config = {
-//     api: {
-//         bodyParser: false,
-//     },
-// };
+    useEffect(() => {
+        // This code runs only on the client after the component mounts
+        try {
+            const storedAnalysis = sessionStorage.getItem('analysisResult');
+            const storedImageData = sessionStorage.getItem('analysisImage');
 
-const readFile = (req) => {
-   const form = formidable({ multiples: false });
-   return new Promise((resolve, reject) => {
-     form.parse(req, (err, fields, files) => {
-       if (err) {
-         reject(err);
-         return;
-       }
-       resolve({ fields, files });
-     });
-   });
-};
+            if (storedAnalysis && storedImageData) {
+                setAnalysis(storedAnalysis);
+                setImageData(storedImageData);
+                // Optional: Clear storage after reading to prevent reuse on refresh/revisit
+                // sessionStorage.removeItem('analysisResult');
+                // sessionStorage.removeItem('analysisImage');
+            } else {
+                setError('Analysis data not found. Please try uploading again.');
+            }
+        } catch (err) {
+            console.error("Error retrieving data from sessionStorage:", err);
+            setError('Failed to load analysis data.');
+        } finally {
+            setIsLoading(false);
+        }
+    }, []); // Empty dependency array ensures this runs only once on mount
 
-
-
-const analyzeImage = async (imagePath, scanType) => {
-    try {
-        const base64Image = fs.readFileSync(imagePath, { encoding: 'base64' });
-
-        const prompt = `Analyze the following image of a ${scanType}.
-        Focus on identifying key features relevant to the scan type (e.g., eye structures for eye scans, facial features for face scans).
-        Based on the image, detect any potential signs of diseases, abnormalities, or conditions.
-        Provide a detailed report of your findings, including any specific observations and potential concerns.
-        Specifically:
-        -For eye scans look for signs of cataracts, glaucoma, macular degeneration, or other retinal issues.
-        -For face scans look for skin abnormalities, lesions, or signs of skin cancer.
-        -If the image is an X-ray scan, look for fractures, tumors, or other abnormalities in bone or tissue.
-        -If the image is an MRI scan, look for any unusual structures in the brain, spine or any other relevant body part.
-        -If the image is an ECG scan, analyze the waveforms and identify any irregularities in heart rhythm or electrical activity.
-
-        Be as specific as possible in your observations. If you detect any potential medical issues, state them clearly and provide a brief explanation of why you suspect them. If the image appears normal, state that clearly as well.
-
-        Important: This analysis is for informational purposes only and should not be considered a medical diagnosis. Always consult with a qualified healthcare professional for any health concerns.`;
-
-        const response = await openai.chat.completions.create({
-            model: "gpt-4-vision-preview",
-            messages: [
-                {
-                    role: "user",
-                    content: [
-                        { type: "text", text: prompt },
-                        { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Image}` } },
-                    ],
-                },
-            ],
-            max_tokens: 500,
-        });
-
-        console.log(response.choices[0]);
-        return response.choices[0].message.content;
-
-    } catch (error) {
-        console.error("Error analyzing image:", error);
-        throw new Error(`Image analysis failed: ${error.message}`);
+    if (isLoading) {
+        return (
+            <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-200px)]">
+                <p>Loading analysis results...</p>
+                {/* You can add a spinner here */}
+            </div>
+        );
     }
-};
 
-
-export async function POST(req, res) {
-    try {
-
-      // This code is specific to Next.js App Router.
-      const formData = await req.formData();
-      const imageFile = formData.get('image');
-      const scanType = formData.get('scanType');
-
-      if (!imageFile) {
-          return NextResponse.json({ message: "Image file is missing" }, { status: 400 });
-      }
-
-      if (!scanType || typeof scanType !== 'string') {
-          return NextResponse.json({ message: "Scan type is missing or invalid" }, { status: 400 });
-      }
-
-      const buffer = await imageFile.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
-      const filename = imageFile.name
-      const tempDir = process.cwd() + "/public/images";
-      const imagePath = `${tempDir}/${filename}`; //Temporary path
-      fs.writeFileSync(imagePath, bytes);
-      const analysisResult = await analyzeImage(imagePath, scanType);
-
-
-      // Clean up the uploaded file after analysis
-      fs.unlinkSync(imagePath);
-
-      return NextResponse.json({ result: analysisResult }, { status: 200 });
-
-    } catch (error) {
-        console.error("API Error:", error);
-        return NextResponse.json({ message: error.message || "Image analysis failed" }, { status: 500 });
+    if (error) {
+        return (
+            <div className="container mx-auto px-4 py-12 text-center text-red-600">
+                <p>{error}</p>
+            </div>
+        );
     }
+
+    // Helper to format analysis text (simple example: replace newlines with <br>)
+    const formatAnalysisText = (text) => {
+        return text.split('\n').map((line, index) => (
+            <span key={index}>
+                {line}
+                <br />
+            </span>
+        ));
+    };
+
+    return (
+        <section className="container mx-auto px-4 py-12">
+            <h1 className="text-3xl font-bold mb-8 text-center">Analysis Result</h1>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Uploaded Image</CardTitle>
+                        <CardDescription>The image submitted for analysis.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex justify-center items-center">
+                        {imageData ? (
+                             // Using standard img tag as Next/Image might require width/height or remotePatterns setup for data URLs
+                             // eslint-disable-next-line @next/next/no-img-element
+                             <img
+                                src={imageData}
+                                alt="Uploaded Face for Analysis"
+                                className="max-w-full h-auto rounded-md object-contain max-h-[400px]" // Limit height
+                            />
+                            // Alternatively, if using Next/Image and configured correctly:
+                            // <Image
+                            //     src={imageData}
+                            //     alt="Uploaded Face for Analysis"
+                            //     width={400} // Example width
+                            //     height={400} // Example height
+                            //     className="rounded-md object-contain"
+                            // />
+                        ) : (
+                            <p>Image could not be loaded.</p>
+                        )}
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>AI Wellness Observations</CardTitle>
+                        <CardDescription>AI-generated observations based on the image. <span className="font-semibold text-destructive">Not a medical diagnosis.</span></CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                         <div className="prose prose-sm max-w-none text-muted-foreground whitespace-pre-line">
+                             {/* Using whitespace-pre-line preserves newlines from the analysis */}
+                             {analysis || "No analysis text found."}
+                         </div>
+                         {/* Alternative formatting using the helper function: */}
+                         {/* <p className="text-sm text-muted-foreground">
+                            {formatAnalysisText(analysis || "No analysis text found.")}
+                         </p> */}
+                    </CardContent>
+                </Card>
+            </div>
+        </section>
+    );
 }

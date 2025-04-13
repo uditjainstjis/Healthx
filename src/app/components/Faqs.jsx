@@ -55,15 +55,6 @@ export default function Faqs() {
             </AccordionContent>
           </AccordionItem>
 
-          {/* Question 5: Disclaimer - MOST IMPORTANT */}
-          <AccordionItem value="item-5">
-            <AccordionTrigger className="text-primary hover:no-underline font-semibold">
-              Can I rely solely on HealthGuard AI instead of seeing a doctor?
-            </AccordionTrigger>
-            <AccordionContent className="font-medium text-destructive">
-              **Absolutely not.** HealthGuard AI is designed as a tool for personal health tracking, awareness, and gaining general insights. It is **not** a diagnostic tool and **does not** replace professional medical advice, diagnosis, or treatment. Always consult with a qualified healthcare provider regarding any medical conditions or concerns you may have. Do not disregard professional medical advice or delay seeking it because of information obtained from this app.
-            </AccordionContent>
-          </AccordionItem>
         </Accordion>
       </div>
     </section>

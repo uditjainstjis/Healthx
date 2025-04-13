@@ -24,16 +24,16 @@ export default function Navbar() {
 
         {/* Desktop Navigation & Theme Toggle */}
         <div className="hidden md:flex items-center space-x-2">
-          <Link href="/#features" passHref legacyBehavior>
+          <Link href="/#features"  >
             <Button variant="ghost">Features</Button>
           </Link>
-          <Link href="/#how-it-works" passHref legacyBehavior>
+          <Link href="/#how-it-works"  >
             <Button variant="ghost">How it Works</Button>
           </Link>
-          <Link href="/#about" passHref legacyBehavior>
+          <Link href="/#about"  >
             <Button variant="ghost">About</Button>
           </Link>
-          <Link href="/chat" passHref legacyBehavior>
+          <Link href="/chat" >
             <Button>Try the Chat</Button>
           </Link>
           {/* --- Add Theme Toggle Here --- */}
@@ -57,11 +57,11 @@ export default function Navbar() {
               {/* Mobile Menu Content */}
               <div className="flex flex-col space-y-4 mt-6">
                  {/* ... your mobile links ... */}
-                 <Link href="/" passHref legacyBehavior><SheetClose asChild><Button variant="ghost" className="justify-start text-lg">Home</Button></SheetClose></Link>
-                 <Link href="/#features" passHref legacyBehavior><SheetClose asChild><Button variant="ghost" className="justify-start text-lg">Features</Button></SheetClose></Link>
-                 <Link href="/#how-it-works" passHref legacyBehavior><SheetClose asChild><Button variant="ghost" className="justify-start text-lg">How it Works</Button></SheetClose></Link>
-                 <Link href="/#about" passHref legacyBehavior><SheetClose asChild><Button variant="ghost" className="justify-start text-lg">About</Button></SheetClose></Link>
-                 <Link href="/chat" passHref legacyBehavior><SheetClose asChild><Button className="w-full text-lg">Try the Chat</Button></SheetClose></Link>
+                 <Link href="/" ><SheetClose asChild><Button variant="ghost" className="justify-start text-lg">Home</Button></SheetClose></Link>
+                 <Link href="/#features" ><SheetClose asChild><Button variant="ghost" className="justify-start text-lg">Features</Button></SheetClose></Link>
+                 <Link href="/#how-it-works" ><SheetClose asChild><Button variant="ghost" className="justify-start text-lg">How it Works</Button></SheetClose></Link>
+                 <Link href="/#about" ><SheetClose asChild><Button variant="ghost" className="justify-start text-lg">About</Button></SheetClose></Link>
+                 <Link href="/chat" ><SheetClose asChild><Button className="w-full text-lg">Try the Chat</Button></SheetClose></Link>
               </div>
             </SheetContent>
           </Sheet>

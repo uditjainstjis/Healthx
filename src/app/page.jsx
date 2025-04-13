@@ -79,7 +79,7 @@ export default function Home() {
         </div>
       </section>
       {/* Health Scanning Sections */}
-      <TabsComp/>
+      <TabsComp handleSensorClick={handleSensorClick} handleCameraClick={handleCameraClick}/>
 
       {/* Insights Section */}
       <section className="container mx-auto px-4 py-12 bg-muted/50">

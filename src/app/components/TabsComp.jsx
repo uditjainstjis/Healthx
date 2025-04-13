@@ -8,7 +8,7 @@ import {
     Footprints,
     Moon,
     Droplets,
-    Camera,
+    ScanFaceIcon,
     Volume as VolumeUp,
     Eye,
     BringToFront as Tongue,
@@ -18,7 +18,7 @@ import {
   } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export default function TabsComp(){
+export default function TabsComp({handleCameraClick, handleSensorClick}){
 
     return(
 
@@ -35,10 +35,6 @@ export default function TabsComp(){
   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
     {[
       { icon: Heart, label: "Heart Rate", description: "Monitor your heart rate in real-time" },
-      { icon: Lungs, label: "Breath Rate", description: "Track your breathing patterns" },
-      { icon: Footprints, label: "Step Count", description: "Daily activity monitoring" },
-      { icon: Moon, label: "Sleep Tracking", description: "Analyze your sleep quality" },
-      { icon: Droplets, label: "SPO₂", description: "Measure oxygen saturation" },
     ].map((item, index) => (
       <Button
         key={index}
@@ -57,7 +53,7 @@ export default function TabsComp(){
 <TabsContent value="camera">
   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
     {[
-      { icon: Camera, label: "Image Capture", description: "Take photos for analysis" },
+      { icon: ScanFaceIcon, label: "Checkup via Face", description: "Take photos for analysis" },
       { icon: VolumeUp, label: "Voice Analysis", description: "Analyze speech patterns" },
       { icon: Eye, label: "Eye Scan", description: "Check eye health" },
       { icon: Tongue, label: "Tongue Analysis", description: "Analyze tongue health" },

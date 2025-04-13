@@ -38,6 +38,7 @@ export default function Xray() {
       timestamp: new Date(),
     },
   ]);
+  
   const [currentChat, setCurrentChat] = useState("1");
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false); // Loading for AI response

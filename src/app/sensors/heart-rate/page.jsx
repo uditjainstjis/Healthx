@@ -22,22 +22,16 @@ export default function HeartRateScanPage() {
     const streamRef = useRef(null);
     const ppgTimeoutRef = useRef(null);
     const progressIntervalRef = useRef(null);
-    const isMountedRef = useRef(false); // To prevent state updates after unmount
 
-    // --- stopCamera (robust version) ---
     const stopCamera = useCallback(() => {
         console.log("PPG Page: Stopping camera...");
         if (ppgTimeoutRef.current) clearTimeout(ppgTimeoutRef.current);
         if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
-        ppgTimeoutRef.current = null;
-        progressIntervalRef.current = null;
-
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(track => track.stop());
-            streamRef.current = null;
             console.log("PPG Page: Tracks stopped.");
         }
-        if (videoRef.current && videoRef.current.srcObject) {
+        if (videoRef.current) {
             videoRef.current.srcObject = null;
             console.log("PPG Page: Video source cleared.");
         }
@@ -48,19 +42,15 @@ export default function HeartRateScanPage() {
         progressIntervalRef.current = null;
     }, []);
 
-    // --- startPpgScan (robust version) ---
     const startPpgScan = useCallback(async () => {
-        if (!isMountedRef.current) return;
         console.log("PPG Page: Attempting to start scan...");
-
-        // Reset state for new scan
         setHeartRate(null);
         setPpgError(null);
         setIsProcessingPpg(true);
         setProgress(0);
         setAiQuery(""); // Reset AI query on new scan
 
-        // Stop any existing camera streams/timers *before* starting new ones
+        // Stop any existing camera streams/timers before starting new ones
         if (streamRef.current || ppgTimeoutRef.current || progressIntervalRef.current) {
             console.log("PPG Page: Stopping previous scan artifacts before starting new one.");
             if (ppgTimeoutRef.current) clearTimeout(ppgTimeoutRef.current);
@@ -77,21 +67,21 @@ export default function HeartRateScanPage() {
         }
 
 
-        let localStream = null;
         try {
             console.log("PPG Page: Requesting user media...");
             const constraints = { video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false };
+            let stream;
             try {
-                localStream = await navigator.mediaDevices.getUserMedia(constraints);
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                console.log("PPG Page: Got environment camera stream.");
             } catch (err) {
                 console.warn("PPG Page: Environment camera failed, trying default.", err);
-                if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") throw err;
                 const fallbackConstraints = { video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false };
-                localStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+                stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+                console.log("PPG Page: Got default camera stream.");
             }
 
-            if (!isMountedRef.current) { localStream?.getTracks().forEach(t => t.stop()); return; }
-            streamRef.current = localStream;
+            streamRef.current = stream;
 
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
@@ -109,22 +99,20 @@ export default function HeartRateScanPage() {
 
             // Start progress and simulation
             setProgress(10);
-            const duration = 10000;
-            const intervalTime = 100;
+            const duration = 10000; // 10 seconds
+            const intervalTime = 100; // Update progress every 100ms
             const steps = duration / intervalTime;
-            const increment = 90 / steps;
+            const increment = 90 / steps; // Increment to reach 100% (10 initial + 90 over duration)
 
             progressIntervalRef.current = setInterval(() => {
-                 if (!isMountedRef.current) { clearInterval(progressIntervalRef.current); return; }
-                 setProgress(p => Math.min(100, p + increment));
+                setProgress(p => Math.min(100, p + increment));
             }, intervalTime);
 
             ppgTimeoutRef.current = setTimeout(() => {
-                 if (!isMountedRef.current) { console.log("Unmounted before scan timeout"); return; }
-                const bpm = Math.floor(Math.random() * 41) + 60; // 60-100 BPM
+                const bpm = Math.floor(Math.random() * 36) + 60; // Simulate 60-95 BPM
                 setHeartRate(bpm);
                 setIsProcessingPpg(false);
-                setProgress(100);
+                setProgress(100); // Ensure progress hits 100
                 if (progressIntervalRef.current) {
                     clearInterval(progressIntervalRef.current);
                     progressIntervalRef.current = null;
@@ -135,7 +123,6 @@ export default function HeartRateScanPage() {
             }, duration);
 
         } catch (error) {
-             if (!isMountedRef.current) { localStream?.getTracks().forEach(t => t.stop()); return; }
             console.error("PPG Page Error during scan setup:", error);
             let message = "Could not access camera. Please ensure permission is granted and the camera is not in use by another application.";
              if (error instanceof DOMException) {
@@ -157,16 +144,14 @@ export default function HeartRateScanPage() {
             // Explicitly call stopCamera here to clean up resources after a setup failure
             stopCamera();
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [stopCamera]); // Keep dependency
+    }, [stopCamera]); // Include stopCamera in dependencies
 
 
     useEffect(() => {
-        isMountedRef.current = true;
         console.log("PPG Page: Component mounted.");
         const startDelayMs = 300;
         const startTimeoutId = setTimeout(() => {
-            console.log(`PPG Page: ${startDelayMs}ms delay finished, starting scan.`);
+
             // Only start if the component is still mounted and no error occurred during potential previous attempts
             if (!ppgError && videoRef.current) { // Check videoRef as proxy for mounted state
                  startPpgScan();
@@ -239,7 +224,9 @@ export default function HeartRateScanPage() {
                 {/* Status Display */}
                 {ppgError && (
                     <Alert variant="destructive">
-                        <Terminal className="h-4 w-4" /> <AlertTitle>Error</AlertTitle> <AlertDescription>{ppgError}</AlertDescription>
+                        <Terminal className="h-4 w-4" />
+                        <AlertTitle>Error</AlertTitle>
+                        <AlertDescription>{ppgError}</AlertDescription>
                     </Alert>
                 )}
                 {isProcessingPpg && !ppgError && (
@@ -249,8 +236,6 @@ export default function HeartRateScanPage() {
                         <p className="text-xs text-muted-foreground">{Math.round(progress)}%</p>
                     </div>
                 )}
-
-                {/* --- Result and Comment Area (Conditional) --- */}
                 {!isProcessingPpg && heartRate !== null && !ppgError && (
                     <div className="text-center p-4 bg-green-100 dark:bg-green-900/50 rounded-lg border border-green-300 dark:border-green-700">
                         <Heart className="mx-auto h-6 w-6 text-green-600 dark:text-green-400 mb-2" />
@@ -282,15 +267,16 @@ export default function HeartRateScanPage() {
                 )}
                 {/* Initial state */}
                 {!isProcessingPpg && heartRate === null && !ppgError && progress === 0 && (
-                     <div className="text-center p-4 text-muted-foreground">Preparing camera...</div>
+                     <div className="text-center p-4 bg-blue-100 dark:bg-blue-900/50 rounded-lg border border-blue-300 dark:border-blue-700">
+                        <p className="text-sm text-muted-foreground">Preparing camera...</p>
+                    </div>
                 )}
             </div>
 
-            {/* --- Bottom Button Area (Adjusted) --- */}
             <div className="mt-6 flex justify-center space-x-4">
                 {/* Scan Again Button: Show if not processing AND (error exists OR result exists) */}
                 {!isProcessingPpg && (ppgError || heartRate !== null) && (
-                    <Button variant="secondary" onClick={startScan}>
+                    <Button variant="secondary" onClick={startPpgScan}>
                         Scan Again
                     </Button>
                 )}
@@ -299,7 +285,6 @@ export default function HeartRateScanPage() {
                     Done
                 </Button>
             </div>
-            {/* Note: The primary "Send to Chat" button is now shown *with* the result */}
         </div>
     );
 }

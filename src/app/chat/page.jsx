@@ -1,11 +1,10 @@
-// src/app/chat/page.jsx
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
 import { Heart, Loader2 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useRouter } from 'next/navigation'; // Import useRouter
-
+import { toast } from 'sonner';
 import ChatSidebar from "../components/ChatSidebar";
 import ChatMessage from "../components/ChatMessage";
 import ChatInput from "../components/ChatInput";
@@ -18,6 +17,11 @@ export default function ChatPage() {
   const [isListening, setIsListening] = useState(false);
   const scrollRef = useRef(null);
   const router = useRouter(); // Initialize useRouter
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const fileInputRef = useRef(null);
+  const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || ""; // Ensure this is set
 
   useEffect(() => {
     const storedChats = localStorage.getItem("chats");
@@ -49,14 +53,14 @@ export default function ChatPage() {
 
   const handleSendMessage = async (message) => {
     if (!message.trim()) return;
-  
+
     const newUserMessage = {
       id: Date.now().toString(),
       role: "user",
       content: message,
       timestamp: new Date(),
     };
-  
+
     setChats((prevChats) => {
       return prevChats.map((chat) => {
         if (chat.id === currentChat) {
@@ -65,24 +69,24 @@ export default function ChatPage() {
         return chat;
       });
     });
-  
+
     setInput("");
     setIsLoading(true);
-  
+
     try {
       // Retrieve current chat history
       const currentChatData = chats.find((chat) => chat.id === currentChat);
       const chatHistory = currentChatData ? currentChatData.messages : [];
-  
+
       // Include the new user message in the chat history
       const updatedChatHistory = [...chatHistory, newUserMessage];
-  
+
       // Map chat history to the format expected by Groq
       const groqMessages = updatedChatHistory.map((msg) => ({
         role: msg.role,
         content: msg.content,
       }));
-  
+
       const response = await fetch("/api/groq", {
         method: "POST",
         headers: {
@@ -90,22 +94,22 @@ export default function ChatPage() {
         },
         body: JSON.stringify({ messages: groqMessages }), // Send entire history
       });
-  
+
       if (!response.ok) {
         console.error("API Error:", response.status, response.statusText);
         throw new Error(`API Error: ${response.statusText}`);
       }
-  
+
       const data = await response.json();
       const aiResponse = data.response;
-  
+
       const newAiMessage = {
         id: Date.now().toString(),
         role: "assistant",
         content: aiResponse,
         timestamp: new Date(),
       };
-  
+
       setChats((prevChats) => {
         return prevChats.map((chat) => {
           if (chat.id === currentChat) {
@@ -119,6 +123,17 @@ export default function ChatPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const addMessageToChat = (message, chatId) => {
+    setChats((prevChats) => {
+      return prevChats.map((chat) => {
+        if (chat.id === chatId) {
+          return { ...chat, messages: [...chat.messages, message] };
+        }
+        return chat;
+      });
+    });
   };
 
   // Update createNewChat for consistency
@@ -156,7 +171,7 @@ export default function ChatPage() {
     setCurrentChat(newChatId);
   };
   const handleVoiceInput = async () => {
-    if (isLoading || isUploading || isListening) return; // Prevent action while busy
+    if (isLoading || isListening) return; // Prevent action while busy
 
     if (!("webkitSpeechRecognition" in window)) {
       alert(
@@ -179,7 +194,7 @@ export default function ChatPage() {
       recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
         // Don't setInput, directly send the message
-        addMessageAndGetResponse(transcript);
+        handleSendMessage(transcript); // Call handleSendMessage here
       };
 
       recognition.onerror = (event) => {

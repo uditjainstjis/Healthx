@@ -442,13 +442,13 @@ useEffect(() => {
                     handleSendMessage(input);
                  }
                }}
-              disabled={isUploading || isLoading || isListening}
+              disabled={isLoading || isListening}
             />
             <Button
                 variant="outline"
                 size="icon"
                 onClick={handleVoiceInput}
-                disabled={isListening || isUploading || isLoading}
+                disabled={isListening || isLoading}
                 aria-label="Use microphone"
              >
               {isListening ? (

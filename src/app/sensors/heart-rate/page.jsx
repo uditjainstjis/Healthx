@@ -2,13 +2,13 @@
 
 "use client";
 
-// Keep necessary imports
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input"; // Import Input component
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Terminal, Heart, ArrowLeft } from "lucide-react"; // Removed Video icon as it wasn't used in JSX below
+import { Terminal, Heart, ArrowLeft, Mic } from "lucide-react"; // Added Mic icon
 
 export default function HeartRateScanPage() {
     const router = useRouter();
@@ -17,6 +17,7 @@ export default function HeartRateScanPage() {
     const [isProcessingPpg, setIsProcessingPpg] = useState(false);
     const [ppgError, setPpgError] = useState(null);
     const [progress, setProgress] = useState(0);
+    const [aiQuery, setAiQuery] = useState(""); // State for the AI input
     const videoRef = useRef(null);
     const streamRef = useRef(null);
     const ppgTimeoutRef = useRef(null);
@@ -35,8 +36,8 @@ export default function HeartRateScanPage() {
             console.log("PPG Page: Video source cleared.");
         }
         streamRef.current = null;
-        setIsProcessingPpg(false); // Ensure processing stops visually
-        setProgress(0); // Reset progress
+        // Don't reset processing/progress flags here if called during cleanup
+        // Let the start function handle resetting them explicitly
         ppgTimeoutRef.current = null;
         progressIntervalRef.current = null;
     }, []);
@@ -47,9 +48,24 @@ export default function HeartRateScanPage() {
         setPpgError(null);
         setIsProcessingPpg(true);
         setProgress(0);
+        setAiQuery(""); // Reset AI query on new scan
 
-        // Ensure any previous streams/timers are stopped before starting new ones
-        stopCamera();
+        // Stop any existing camera streams/timers *before* starting new ones
+        if (streamRef.current || ppgTimeoutRef.current || progressIntervalRef.current) {
+            console.log("PPG Page: Stopping previous scan artifacts before starting new one.");
+            if (ppgTimeoutRef.current) clearTimeout(ppgTimeoutRef.current);
+            if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+             if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop());
+            }
+            if (videoRef.current) {
+                videoRef.current.srcObject = null;
+            }
+            streamRef.current = null;
+            ppgTimeoutRef.current = null;
+            progressIntervalRef.current = null;
+        }
+
 
         try {
             console.log("PPG Page: Requesting user media...");
@@ -69,10 +85,15 @@ export default function HeartRateScanPage() {
 
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
+                // Ensure the video element is ready before playing
+                await new Promise((resolve) => {
+                    videoRef.current.onloadedmetadata = () => {
+                        resolve();
+                    };
+                });
                 await videoRef.current.play();
                 console.log("PPG Page: Video playing.");
             } else {
-                // This case should ideally not happen if component mounted correctly
                 throw new Error("Video ref is not available.");
             }
 
@@ -96,17 +117,15 @@ export default function HeartRateScanPage() {
                     clearInterval(progressIntervalRef.current);
                     progressIntervalRef.current = null;
                 }
-                // Don't stop camera here, let user see result or scan again
+                // Camera is intentionally left running until user navigates away or scans again
                 console.log("PPG Page: Scan simulation complete. BPM:", bpm);
-                // Stop camera after a brief delay showing the result, or let Scan Again/Done handle it.
-                // For simplicity, we'll let the buttons or unmount handle the final stop.
 
             }, duration);
 
         } catch (error) {
             console.error("PPG Page Error during scan setup:", error);
             let message = "Could not access camera. Please ensure permission is granted and the camera is not in use by another application.";
-            if (error instanceof DOMException) {
+             if (error instanceof DOMException) {
                 if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
                     message = "No suitable camera found.";
                 } else if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
@@ -122,33 +141,62 @@ export default function HeartRateScanPage() {
             setPpgError(message);
             setIsProcessingPpg(false);
             setProgress(0);
-            stopCamera(); // Clean up if setup failed
+            // Explicitly call stopCamera here to clean up resources after a setup failure
+            stopCamera();
         }
     }, [stopCamera]); // Include stopCamera in dependencies
 
 
-    // --- CHANGE: Use effect to start scan automatically WITH A DELAY ---
     useEffect(() => {
         console.log("PPG Page: Component mounted.");
-
-        // Use a timeout to slightly delay the camera start after navigation
-        const startDelayMs = 300; // Delay in milliseconds (adjust if needed)
+        const startDelayMs = 300;
         const startTimeoutId = setTimeout(() => {
             console.log(`PPG Page: ${startDelayMs}ms delay finished, starting scan.`);
-            startPpgScan();
+            // Only start if the component is still mounted and no error occurred during potential previous attempts
+            if (!ppgError && videoRef.current) { // Check videoRef as proxy for mounted state
+                 startPpgScan();
+            } else {
+                 console.log("PPG Page: Scan start aborted (component unmounted or error present).");
+            }
         }, startDelayMs);
 
-        // Return cleanup function
         return () => {
             console.log("PPG Page: Component unmounting...");
-            clearTimeout(startTimeoutId); // Clear the start timeout if component unmounts before it fires
-            stopCamera(); // Call the memoized stop function
+            clearTimeout(startTimeoutId);
+            stopCamera(); // Use the memoized stop function for cleanup
             console.log("PPG Page: Cleanup complete.");
         };
+        // Start scan only on initial mount. Avoid re-running if dependencies change.
+        // startPpgScan is memoized, but adding it can cause re-runs if its own deps change unexpectedly.
+        // We want the mount/unmount behavior primarily.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [startPpgScan]); // Add startPpgScan (which depends on stopCamera)
+    }, []); // Keep dependencies minimal for mount/unmount behavior
 
-    // --- RETURN page JSX (No Dialog wrapper) ---
+    // --- Handlers for AI Input ---
+    const handleAiInputChange = (event) => {
+        setAiQuery(event.target.value);
+    };
+
+    const handleAiInputKeyDown = (event) => {
+        if (event.key === 'Enter' && aiQuery.trim()) {
+            event.preventDefault(); // Prevent potential form submission if wrapped later
+            console.log("PPG Page: Navigating to chat with query:", aiQuery);
+            // Optionally pass the query via state or query params later
+            router.push('/chat');
+        } else if (event.key === 'Enter') {
+             event.preventDefault();
+             // Optionally provide feedback if Enter is pressed with empty input
+             console.log("PPG Page: Enter pressed on empty AI input, doing nothing.");
+        }
+    };
+
+    const handleMicClick = () => {
+        console.log("PPG Page: Mic button clicked, navigating to chat.");
+        // Navigate to chat, potentially activating voice input on that page later
+        router.push('/chat');
+    };
+
+    // --- RETURN page JSX ---
     return (
         <div className="container mx-auto px-4 py-8 max-w-lg">
             <Button variant="ghost" onClick={() => router.back()} className="mb-4">
@@ -168,7 +216,7 @@ export default function HeartRateScanPage() {
                         ref={videoRef}
                         muted
                         playsInline
-                        className="w-full h-full object-cover" // Ensure video fills the container
+                        className="w-full h-full object-cover"
                     ></video>
                     {/* Optional: Add overlay/indicator if needed */}
                 </div>
@@ -194,9 +242,30 @@ export default function HeartRateScanPage() {
                         <p className="text-sm text-muted-foreground mb-1">Estimated Heart Rate:</p>
                         <p className="text-4xl font-bold text-green-700 dark:text-green-300">{heartRate}</p>
                         <p className="text-sm text-muted-foreground mt-1">BPM</p>
+
+                        {/* --- NEW: AI Input Section --- */}
+                        <div className="mt-6 flex items-center space-x-2">
+                            <Input
+                                type="text"
+                                placeholder="Ask about this heart rate..."
+                                value={aiQuery}
+                                onChange={handleAiInputChange}
+                                onKeyDown={handleAiInputKeyDown}
+                                className="flex-grow" // Allow input to take available space
+                            />
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={handleMicClick}
+                                aria-label="Ask AI via voice"
+                            >
+                                <Mic className="h-5 w-5" />
+                            </Button>
+                        </div>
+                        {/* --- End AI Input Section --- */}
                     </div>
                 )}
-                {/* Initial state before scan starts or if it finishes without error/result */}
+                {/* Initial state */}
                 {!isProcessingPpg && heartRate === null && !ppgError && progress === 0 && (
                      <div className="text-center p-4 bg-blue-100 dark:bg-blue-900/50 rounded-lg border border-blue-300 dark:border-blue-700">
                         <p className="text-sm text-muted-foreground">Preparing camera...</p>
@@ -205,13 +274,13 @@ export default function HeartRateScanPage() {
             </div>
 
             <div className="mt-6 flex justify-center space-x-4">
-                {/* Scan Again Button: Show if not processing and (error exists or result exists) */}
+                {/* Scan Again Button: Show if not processing AND (error exists OR result exists) */}
                 {!isProcessingPpg && (ppgError || heartRate !== null) && (
                     <Button variant="secondary" onClick={startPpgScan}>
                         Scan Again
                     </Button>
                 )}
-                {/* Done Button: Always show? Or hide while processing? Let's always show it. */}
+                {/* Done Button: Always show */}
                 <Button variant="outline" onClick={() => router.back()}>
                     Done
                 </Button>

@@ -3,6 +3,7 @@ import "./globals.css";
 import { Inter } from "next/font/google";
 import { ThemeProvider } from "./components/ThemeProvider"; // Make sure this import is correct
 import { cn } from "@/lib/utils";
+import { Toaster } from 'sonner'; // Import Toaster
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -24,7 +25,7 @@ export default function RootLayout({ children }) { // Must be 'export default fu
           disableTransitionOnChange
         >
           {children}
-          {/* Toaster might be here */}
+          <Toaster position="top-center" richColors /> {/* Add the Toaster component here */}
         </ThemeProvider>
       </body>
     </html>

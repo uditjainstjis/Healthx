@@ -1,6 +1,6 @@
 // ./components/TabsComp.js
 import { Button } from "@/components/ui/button";
-import { Radiation, Brain, Activity, ScanSearch, ScanFaceIcon, Eye, Scan } from "lucide-react"; // Added ScanSearch for CT
+import { Radiation, Brain, Activity, ScanSearch, ScanFaceIcon, Eye, Scan, Heart } from "lucide-react"; // Added ScanSearch for CT
 // ... other icon imports
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -136,6 +136,22 @@ export default function TabsComp({ handleCameraClick, handleSensorClick }) {
 
                 {/* Sensor Content (no changes needed here) */}
                 <TabsContent value="sensors">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {[
+                    { icon: Heart, label: "Heart Rate", description: "Monitor your heart rate in real-time" },
+                  ].map((item, index) => (
+                    <Button
+                      key={index}
+                      variant="outline"
+                      className="h-32 flex-col space-y-2 p-4 hover:bg-primary/5"
+                      onClick={() => handleSensorClick(item.label)}
+                    >
+                      <item.icon className="h-8 w-8" />
+                      <span className="font-medium">{item.label}</span>
+                      <span className="text-xs text-muted-foreground">{item.description}</span>
+                    </Button>
+                  ))}
+                </div>
                     {/* ... existing sensor buttons ... */}
                 </TabsContent>
 

@@ -1,288 +1,332 @@
-// src/app/sensors/blood-pressure/page.jsx
-
+// src/app/chat/page.jsx
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
-import { useRouter } from 'next/navigation';
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Terminal, Heart, ArrowLeft, Send, BrainCircuit, Loader2, Video } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Heart, Loader2 } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useRouter } from 'next/navigation'; // Import useRouter
 
-// --- Constants (Keep as before) ---
-const ANALYSIS_TOTAL_DURATION_MS = 8000;
-const PHASE1_DURATION_MS = 4000;
-const PHASE2_DURATION_MS = 4000;
-const MIN_SYSTOLIC = 100;
-const MAX_SYSTOLIC = 140;
-const MIN_DIASTOLIC = 60;
-const MAX_DIASTOLIC = 90;
+import ChatSidebar from "../components/ChatSidebar";
+import ChatMessage from "../components/ChatMessage";
+import ChatInput from "../components/ChatInput";
 
-export default function BloodPressureLaptopPage() {
-    const router = useRouter();
+export default function ChatPage() {
+  const [chats, setChats] = useState([]); // Array of chat objects
+  const [currentChat, setCurrentChat] = useState(null); // ID of the current chat
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false); // For AI responses
+  const [isListening, setIsListening] = useState(false);
+  const scrollRef = useRef(null);
+  const router = useRouter(); // Initialize useRouter
 
-    const [bloodPressure, setBloodPressure] = useState(null);
-    const [isProcessing, setIsProcessing] = useState(false);
-    const [processingPhase, setProcessingPhase] = useState(1);
-    const [processingError, setProcessingError] = useState(null);
-    const [progress, setProgress] = useState(0);
+  useEffect(() => {
+    const storedChats = localStorage.getItem("chats");
+    if (storedChats) {
+      setChats(JSON.parse(storedChats));
+    }
+  }, []);
 
-    const analysisTimeoutRef = useRef(null);
-    const progressIntervalRef = useRef(null);
-    const videoRef = useRef(null);
-    const streamRef = useRef(null);
+  useEffect(() => {
+    if (chats.length === 0) {
+      createNewChat(); // Create a new chat if no chats exist
+    } else if (!currentChat && chats.length > 0) {
+      setCurrentChat(chats[0].id); // Set the current chat to the first one if no currentChat is set
+    }
+  }, [chats]);
 
-    // --- ADD isMounted Ref ---
-    const isMountedRef = useRef(true); // Track mounted state
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  }, [chats, currentChat]);
 
-    // --- stopAnalysis (Keep mostly the same, ensure it's safe) ---
-    const stopAnalysis = useCallback(() => {
-        console.log("Blood Pressure Page: Stopping analysis...");
-        if (analysisTimeoutRef.current) clearTimeout(analysisTimeoutRef.current);
-        if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+  useEffect(() => {
+    localStorage.setItem("chats", JSON.stringify(chats));
+  }, [chats]);
 
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop());
-            console.log("Blood Pressure Page: Camera tracks stopped.");
-            streamRef.current = null;
-        }
-        // Check if videoRef exists before accessing srcObject
-        if (videoRef.current) {
-             videoRef.current.srcObject = null;
-             console.log("Blood Pressure Page: Video source cleared.");
-        }
-
-        // Reset state only if component is still considered mounted *logically*
-        // (though this function is usually called during unmount cleanup anyway)
-        // We mainly rely on checks within startAnalysis now
-        setIsProcessing(false);
-        setProgress(0);
-        setProcessingPhase(1);
-        analysisTimeoutRef.current = null;
-        progressIntervalRef.current = null;
-    }, []);
-
-    // --- startAnalysis (Add isMounted checks) ---
-    const startAnalysis = useCallback(async () => {
-        console.log("Blood Pressure Page: Attempting to start analysis...");
-
-        // Ensure ref is true at the start of an attempt
-        isMountedRef.current = true;
-
-        setBloodPressure(null);
-        setProcessingError(null);
-        setIsProcessing(true); // Set processing true early
-        setProgress(0);
-        setProcessingPhase(1);
-
-        // Stop any previous analysis first (important!)
-        stopAnalysis();
-        await new Promise(resolve => setTimeout(resolve, 150)); // Small delay
-
-
-        let localStream = null; // Use local var to manage stream release on early exit
-
-        try {
-             console.log("Blood Pressure Page: Requesting camera access...");
-             // ... (getUserMedia logic as before) ...
-              if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                 throw new Error("Webcam access is not supported in this browser.");
-             }
-             const constraints = { video: { facingMode: "user", width: { ideal: 320 }, height: { ideal: 240 } }, audio: false };
-              try {
-                 localStream = await navigator.mediaDevices.getUserMedia(constraints);
-              } catch (err) {
-                 console.warn("Front camera failed, trying default", err);
-                 const fallbackConstraints = { video: { width: { ideal: 320 }, height: { ideal: 240 } }, audio: false };
-                 localStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
-             }
-
-
-             // *** CHECK MOUNTED before proceeding ***
-             if (!isMountedRef.current) {
-                 console.log("Blood Pressure Page: Unmounted after getUserMedia. Stopping stream.");
-                 localStream?.getTracks().forEach(track => track.stop()); // Stop tracks if acquired
-                 return; // Exit early
-             }
-
-             streamRef.current = localStream; // Assign to ref only if mounted
-
-             if (videoRef.current) {
-                 videoRef.current.srcObject = streamRef.current;
-                 try {
-                     console.log("Blood Pressure Page: Attempting video play...");
-                     await videoRef.current.play();
-                     // *** CHECK MOUNTED after play attempt settles ***
-                     if (!isMountedRef.current) {
-                         console.log("Blood Pressure Page: Unmounted during/after video play. Aborting.");
-                         // stopAnalysis will be called by cleanup, no need to return here explicitly
-                         // unless we want to prevent subsequent code in THIS function call
-                         return;
-                     }
-                     console.log("Blood Pressure Page: Webcam stream playing.");
-                 } catch (playError) {
-                    // If play fails (e.g., interrupted by unmount), catch it
-                     console.error("Blood Pressure Page: Video play() error:", playError);
-                     // Don't throw if it's an AbortError caused by navigation/unmount
-                     if (playError.name === 'AbortError') {
-                         console.log("Blood Pressure Page: play() aborted, likely due to unmount/navigation.");
-                          // Component is likely unmounting, cleanup will handle stream stop
-                         return; // Exit function gracefully
-                     }
-                     // For other errors, re-throw or set specific error state
-                      if (!isMountedRef.current) return; // Check before throwing/setting state
-                     throw new Error(`Could not play video stream: ${playError.message}`);
-                 }
-             } else {
-                 if (!isMountedRef.current) return; // Check before throwing
-                throw new Error("Video element reference missing.");
-             }
-
-            // *** CHECK MOUNTED before setting timers ***
-            if (!isMountedRef.current) return;
-
-            // Start overall progress
-            setProgress(5);
-            const intervalTime = 100;
-            const totalSteps = ANALYSIS_TOTAL_DURATION_MS / intervalTime;
-            const increment = 95 / totalSteps;
-
-             if (progressIntervalRef.current) clearInterval(progressIntervalRef.current); // Clear old just in case
-            progressIntervalRef.current = setInterval(() => {
-                 // Check inside interval too (optional but safer)
-                 if (!isMountedRef.current) {
-                     clearInterval(progressIntervalRef.current);
-                     return;
-                 }
-                setProgress(p => Math.min(100, p + increment));
-            }, intervalTime);
-
-            // Phase 1 Timer
-             if (analysisTimeoutRef.current) clearTimeout(analysisTimeoutRef.current); // Clear old just in case
-            analysisTimeoutRef.current = setTimeout(() => {
-                 // *** CHECK MOUNTED before Phase 2 logic ***
-                 if (!isMountedRef.current) {
-                      console.log("Blood Pressure Page: Unmounted before Phase 2.");
-                      return;
-                 }
-                console.log("Blood Pressure Page: Simulating Phase 2...");
-                setProcessingPhase(2); // State update only if mounted
-
-                // Phase 2 Timer
-                analysisTimeoutRef.current = setTimeout(() => {
-                     // *** CHECK MOUNTED before setting final result ***
-                     if (!isMountedRef.current) {
-                          console.log("Blood Pressure Page: Unmounted before setting final result.");
-                          return;
-                     }
-                    console.log("Blood Pressure Page: Analysis complete logic executing...");
-                    const systolic = Math.floor(Math.random() * (MAX_SYSTOLIC - MIN_SYSTOLIC + 1)) + MIN_SYSTOLIC;
-                    const diastolic = Math.floor(Math.random() * (MAX_DIASTOLIC - MIN_DIASTOLIC + 1)) + MIN_DIASTOLIC;
-
-                    setBloodPressure({ systolic, diastolic });
-                    setProgress(100);
-                     setIsProcessing(false); // Set processing false *before* calling stopAnalysis if desired
-                     // stopAnalysis(); // Call stop here or let cleanup handle it? Cleanup is safer.
-                     console.log("Blood Pressure Page: Analysis simulation complete. BP:", `${systolic}/${diastolic}`);
-
-                     // Note: stopAnalysis will be called by the useEffect cleanup anyway when
-                     // the component eventually unmounts or if startAnalysis is called again.
-                     // Calling it here might be redundant unless you specifically want to stop the camera
-                     // *immediately* upon showing the result, even before navigation.
-                     // Let's remove the explicit call here and rely on cleanup / next startAnalysis call.
-
-
-                }, PHASE2_DURATION_MS); // End of Phase 2
-
-            }, PHASE1_DURATION_MS); // End of Phase 1
-
-        } catch (error) {
-            // *** CHECK MOUNTED before setting error state ***
-             if (!isMountedRef.current) {
-                 console.log("Blood Pressure Page: Unmounted before error could be set.");
-                 // Ensure stream is stopped if acquired before error and unmount
-                 localStream?.getTracks().forEach(track => track.stop());
-                 return; // Don't try to set state
-             }
-            console.error("Blood Pressure Page Error during analysis setup:", error);
-            // ... (error message formatting as before) ...
-             let message = "Could not start blood pressure estimation.";
-             // ... (rest of error handling) ...
-            setProcessingError(message);
-            setIsProcessing(false); // Set loading false on error
-            // No need to call stopAnalysis here, it was likely called at start
-            // or will be called by cleanup if component unmounts due to error/navigation
-             // Ensure stream acquired in this attempt is stopped if error occurred mid-way
-            localStream?.getTracks().forEach(track => track.stop());
-             streamRef.current = null; // Ensure ref is cleared if error happened after assignment
-        }
-    }, [stopAnalysis]); // Keep stopAnalysis dependency
-
-    // --- useEffect for auto-start and cleanup (Update cleanup) ---
-    useEffect(() => {
-        isMountedRef.current = true; // Set true on mount
-        console.log("Blood Pressure Page: Component mounted.");
-        startAnalysis();
-
-        // Return cleanup function
-        return () => {
-            isMountedRef.current = false; // <<< SET isMounted to false FIRST
-            console.log("Blood Pressure Page: Component unmounting...");
-            stopAnalysis(); // Then call stopAnalysis
-            console.log("Blood Pressure Page: Cleanup complete.");
-        };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // Run only on mount; startAnalysis handles its dependencies internally
-
-    // --- handleSendToChat (Keep as before) ---
-    const handleSendToChat = () => {
-        if (bloodPressure && !processingError) {
-             // stopAnalysis(); // Optional: call stop explicitly before nav if desired
-            console.log(`Blood Pressure Page: Navigating to chat with BP=${bloodPressure.systolic}/${bloodPressure.diastolic}`);
-            router.push(`/chat?bpSystolic=${bloodPressure.systolic}&bpDiastolic=${bloodPressure.diastolic}`);
-        } else {
-            console.warn("Blood Pressure Page: Attempted to send to chat without a valid result.");
-        }
+  const handleSendMessage = async (message) => {
+    if (!message.trim()) return;
+  
+    const newUserMessage = {
+      id: Date.now().toString(),
+      role: "user",
+      content: message,
+      timestamp: new Date(),
     };
+  
+    setChats((prevChats) => {
+      return prevChats.map((chat) => {
+        if (chat.id === currentChat) {
+          return { ...chat, messages: [...chat.messages, newUserMessage] };
+        }
+        return chat;
+      });
+    });
+  
+    setInput("");
+    setIsLoading(true);
+  
+    try {
+      // Retrieve current chat history
+      const currentChatData = chats.find((chat) => chat.id === currentChat);
+      const chatHistory = currentChatData ? currentChatData.messages : [];
+  
+      // Include the new user message in the chat history
+      const updatedChatHistory = [...chatHistory, newUserMessage];
+  
+      // Map chat history to the format expected by Groq
+      const groqMessages = updatedChatHistory.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+  
+      const response = await fetch("/api/groq", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ messages: groqMessages }), // Send entire history
+      });
+  
+      if (!response.ok) {
+        console.error("API Error:", response.status, response.statusText);
+        throw new Error(`API Error: ${response.statusText}`);
+      }
+  
+      const data = await response.json();
+      const aiResponse = data.response;
+  
+      const newAiMessage = {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: aiResponse,
+        timestamp: new Date(),
+      };
+  
+      setChats((prevChats) => {
+        return prevChats.map((chat) => {
+          if (chat.id === currentChat) {
+            return { ...chat, messages: [...chat.messages, newAiMessage] };
+          }
+          return chat;
+        });
+      });
+    } catch (error) {
+      console.error("Error sending message:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    // --- RETURN page JSX (Keep as before) ---
-    return (
-         <div className="container mx-auto px-4 py-8 max-w-lg">
-            {/* ... Back Button ... */}
-             <Button variant="ghost" onClick={() => router.back()} className="mb-4">
-                 <ArrowLeft className="mr-2 h-4 w-4" /> Back
-             </Button>
-            {/* ... Title ... */}
-            <h1 className="text-2xl font-bold mb-4 text-center">Blood Pressure Estimation</h1>
-            {/* ... Instructions ... */}
-             <p className="text-muted-foreground mb-6 text-center">
-                 Place your finger gently over the webcam lens. The system will analyze vascular signals and estimate your blood pressure.
-             </p>
-             {/* ... Main Content Area ... */}
-            <div className="py-4 space-y-4 min-h-[300px] flex flex-col justify-center items-center border rounded-lg p-4 bg-card">
-                {/* ... Error Display ... */}
-                {processingError && ( <Alert /* ... */ /> )}
-                 {/* ... Video Preview ... */}
-                 <div className={`relative w-32 h-24 bg-black rounded overflow-hidden border border-muted mx-auto mb-4 ${!isProcessing && bloodPressure === null && !processingError ? 'opacity-50' : ''}`}>
-                     <video ref={videoRef} muted playsInline className="w-full h-full object-cover"></video>
-                     {!isProcessing && bloodPressure === null && !processingError && <Video className="absolute inset-0 m-auto h-8 w-8 text-white/50"/> }
-                 </div>
-                {/* ... Processing Display ... */}
-                {isProcessing && !processingError && ( <div /* ... phase 1 / phase 2 display ... */ /> )}
-                 {/* ... Result Display ... */}
-                 {!isProcessing && bloodPressure && !processingError && ( <div /* ... BP result display ... */ /> )}
-                 {/* ... Initial State ... */}
-                  {!isProcessing && !bloodPressure && !processingError && ( <div /* ... Preparing analysis ... */ /> )}
-            </div>
-            {/* ... Button Area ... */}
-            <div className="mt-8 flex justify-center space-x-4">
-                {/* ... Analyze Again Button ... */}
-                {!isProcessing && (processingError || bloodPressure) && ( <Button variant="secondary" onClick={startAnalysis}>Analyze Again</Button>)}
-                {/* ... Send to Chat Button ... */}
-                {!isProcessing && bloodPressure && !processingError && ( <Button onClick={handleSendToChat}><Send className="mr-2 h-4 w-4" /> Send to Chat</Button>)}
-                {/* ... Done Button ... */}
-                <Button variant="outline" onClick={() => router.back()}>Done</Button>
-            </div>
-        </div>
-    );
+  // Update createNewChat for consistency
+  const createNewChat = () => {
+    // Check if there's a current chat and if it's empty (only has the initial assistant message)
+    if (currentChat) {
+      const currentChatData = chats.find((chat) => chat.id === currentChat);
+      if (
+        currentChatData &&
+        currentChatData.messages.length === 1 &&
+        currentChatData.messages[0].role === "assistant"
+      ) {
+        // Delete the empty previous chat
+        const updatedChats = chats.filter((chat) => chat.id !== currentChat);
+        setChats(updatedChats);
+        localStorage.setItem("chats", JSON.stringify(updatedChats)); // Update localStorage
+      }
+    }
+
+    const newChatId = Date.now().toString();
+    const newChat = {
+      id: newChatId,
+      title: "New Chat",
+      messages: [
+        {
+          id: Date.now().toString(),
+          role: "assistant",
+          content: "Hello! How can I assist you with your health today? Feel free to ask questions or upload a DICOM image.",
+          timestamp: new Date(),
+        },
+      ],
+      timestamp: new Date(),
+    };
+    setChats((prev) => [newChat, ...prev]);
+    setCurrentChat(newChatId);
+  };
+  const handleVoiceInput = async () => {
+    if (isLoading || isUploading || isListening) return; // Prevent action while busy
+
+    if (!("webkitSpeechRecognition" in window)) {
+      alert(
+        "Speech Recognition Not Available: Your browser doesn't support speech recognition."
+      );
+      return;
+    }
+    try {
+      const SpeechRecognition = window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+
+      recognition.lang = "en-US";
+      recognition.interimResults = false;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        toast.info("Listening...");
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        // Don't setInput, directly send the message
+        addMessageAndGetResponse(transcript);
+      };
+
+      recognition.onerror = (event) => {
+        console.error("Speech recognition error:", event.error);
+        toast.error(`Speech recognition error: ${event.error}`);
+        // No need to set isListening false here, onend will handle it
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+        toast.dismiss(); // Dismiss listening toast if still open
+      };
+
+      recognition.start();
+    } catch (error) {
+      console.error("Speech recognition setup error:", error);
+      toast.error("Error: Failed to start voice recognition. Please try again.");
+      setIsListening(false); // Ensure state is reset on catch
+    }
+  };
+
+  // --- Add DICOM Upload Handlers ---
+  const handleFileSelectionChange = (event) => {
+    const file = event.target.files?.[0];
+    if (file) {
+        if (!file.name.toLowerCase().endsWith('.dcm') && file.type !== 'application/dicom') {
+             toast.warning("Warning: Selected file might not be a DICOM (.dcm) file. Upload attempt will proceed.");
+        }
+        setSelectedFile(file);
+    } else {
+        setSelectedFile(null);
+    }
+  };
+
+  const handleInitiateUpload = () => {
+    if (!selectedFile) {
+      toast.error("Please select a DICOM file first.");
+      return;
+    }
+    handleDicomUpload(selectedFile);
+  };
+
+  const handleDicomUpload = async (file) => {
+    setIsUploading(true);
+    const uploadToastId = toast.loading(`Uploading ${file.name}...`);
+    const formData = new FormData();
+    formData.append('dicomFile', file);
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/dicom/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || `HTTP error! status: ${response.status}`);
+      }
+
+      toast.success(`Successfully uploaded ${file.name}.`, { id: uploadToastId });
+      setIsDialogOpen(false);
+      setSelectedFile(null);
+
+      const systemMessage = {
+        id: Date.now().toString(),
+        role: "system",
+        content: `Successfully uploaded DICOM file: ${file.name}. A healthcare professional should review this image.`,
+        timestamp: new Date(),
+      };
+      addMessageToChat(systemMessage, currentChat);
+
+    } catch (error) {
+      console.error("DICOM Upload Error:", error);
+      toast.error(`Upload failed: ${error.message}`, { id: uploadToastId });
+
+      const errorMessage = {
+        id: Date.now().toString(),
+        role: "system",
+        content: `Failed to upload DICOM file: ${file.name}. Error: ${error.message}`,
+        timestamp: new Date(),
+        isError: true, // Flag for styling
+      };
+      addMessageToChat(errorMessage, currentChat);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+          fileInputRef.current.value = ""; // Reset file input
+      }
+    }
+  };
+  // --- End DICOM Upload Handlers ---
+
+  const currentChatData = chats.find((chat) => chat.id === currentChat);
+
+  return (
+    <div className="flex h-screen bg-background">
+      {/* Sidebar */}
+      <ChatSidebar
+        chats={chats}
+        currentChat={currentChat}
+        onChatClick={setCurrentChat}
+        onNewChatClick={createNewChat}
+      />
+
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col">
+        {/* Header - Display current chat title */}
+        <header className="h-16 border-b flex items-center px-6">
+          <div className="flex items-center space-x-2">
+            <Heart className="h-6 w-6 text-primary" />
+            <span className="font-semibold">
+              {currentChatData?.title || "HealthGuard AI Chat"}
+            </span>
+          </div>
+        </header>
+
+        {/* Messages */}
+        <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+          <div className="max-w-3xl mx-auto space-y-4">
+            {currentChatData?.messages.map((message) => (
+              <ChatMessage key={message.id} message={message} />
+            ))}
+            {/* AI Loading indicator */}
+            {isLoading && (
+              <div className="flex justify-start">
+                <div className="bg-muted rounded-lg p-3"> {/* Reduced padding */}
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                </div>
+              </div>
+            )}
+            {/* Note: Upload indicator is in the Dialog footer now */}
+          </div>
+        </ScrollArea>
+
+        {/* Input Area */}
+        <ChatInput
+          input={input}
+          setInput={setInput}
+          onSendMessage={handleSendMessage}
+          onVoiceInput={handleVoiceInput}
+          isLoading={isLoading}
+          isListening={isListening}
+        />
+      </div>
+
+      {/* REMINDER: Add <Toaster /> from sonner to your app's root layout (e.g., layout.js) */}
+      {/* <Toaster position="top-center" richColors /> */}
+    </div>
+  );
 }

@@ -1,439 +1,288 @@
-// src/app/sensors/voice-analysis/page.jsx <-- Create this file
+
+// src/app/sensors/blood-pressure/page.jsx
 
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress"; // Using Progress for visual feedback
+import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"; // For report display
-import { Terminal, ArrowLeft, Send, Mic, Square, Loader2, FileText, Play, BrainCircuit } from "lucide-react"; // Added icons
+import { Terminal, Heart, ArrowLeft, Send, BrainCircuit, Loader2, Video } from "lucide-react";
 
-// Constants
-const RECORDING_DURATION_MS = 10000; // Record for 10 seconds (adjust as needed)
+// --- Constants (Keep as before) ---
+const ANALYSIS_TOTAL_DURATION_MS = 8000;
+const PHASE1_DURATION_MS = 4000;
+const PHASE2_DURATION_MS = 4000;
+const MIN_SYSTOLIC = 100;
+const MAX_SYSTOLIC = 140;
+const MIN_DIASTOLIC = 60;
+const MAX_DIASTOLIC = 90;
 
-export default function VoiceAnalysisPage() {
+export default function BloodPressureLaptopPage() {
     const router = useRouter();
 
-    // State Management
-    const [status, setStatus] = useState('idle'); // 'idle', 'permission', 'recording', 'processing', 'analyzing', 'complete', 'error'
-    const [error, setError] = useState(null);
-    const [report, setReport] = useState(null);
-    const [countdown, setCountdown] = useState(RECORDING_DURATION_MS / 1000);
-    const [audioUrl, setAudioUrl] = useState(null); // To allow playback
+    const [bloodPressure, setBloodPressure] = useState(null);
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [processingPhase, setProcessingPhase] = useState(1);
+    const [processingError, setProcessingError] = useState(null);
+    const [progress, setProgress] = useState(0);
 
-    // Refs
+    const analysisTimeoutRef = useRef(null);
+    const progressIntervalRef = useRef(null);
+    const videoRef = useRef(null);
     const streamRef = useRef(null);
-    const mediaRecorderRef = useRef(null);
-    const audioChunksRef = useRef([]);
-    const countdownIntervalRef = useRef(null);
-    const isMountedRef = useRef(false);
 
-    // --- Cleanup Function ---
-    const cleanup = useCallback(() => {
-        console.log("Voice Analysis: Cleaning up resources...");
-        if (countdownIntervalRef.current) {
-            clearInterval(countdownIntervalRef.current);
-            countdownIntervalRef.current = null;
-        }
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-            mediaRecorderRef.current.stop(); // Will trigger onstop
-             console.log("Voice Analysis: MediaRecorder stopped during cleanup.");
-        }
+    // --- ADD isMounted Ref ---
+    const isMountedRef = useRef(true); // Track mounted state
+
+    // --- stopAnalysis (Keep mostly the same, ensure it's safe) ---
+    const stopAnalysis = useCallback(() => {
+        console.log("Blood Pressure Page: Stopping analysis...");
+        if (analysisTimeoutRef.current) clearTimeout(analysisTimeoutRef.current);
+        if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(track => track.stop());
+            console.log("Blood Pressure Page: Camera tracks stopped.");
             streamRef.current = null;
-            console.log("Voice Analysis: MediaStream tracks stopped.");
         }
-         // Reset refs
-         mediaRecorderRef.current = null;
-         audioChunksRef.current = [];
+        // Check if videoRef exists before accessing srcObject
+        if (videoRef.current) {
+             videoRef.current.srcObject = null;
+             console.log("Blood Pressure Page: Video source cleared.");
+        }
 
+        // Reset state only if component is still considered mounted *logically*
+        // (though this function is usually called during unmount cleanup anyway)
+        // We mainly rely on checks within startAnalysis now
+        setIsProcessing(false);
+        setProgress(0);
+        setProcessingPhase(1);
+        analysisTimeoutRef.current = null;
+        progressIntervalRef.current = null;
     }, []);
 
+    // --- startAnalysis (Add isMounted checks) ---
+    const startAnalysis = useCallback(async () => {
+        console.log("Blood Pressure Page: Attempting to start analysis...");
 
-    // --- Request Microphone Permission ---
-    const requestMicPermission = useCallback(async () => {
-        setStatus('permission');
-        setError(null);
-        setReport(null);
-        setAudioUrl(null); // Clear previous recording URL
-
-        try {
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                throw new Error("MediaDevices API not supported.");
-            }
-            // Get stream but don't assign to ref yet
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-
-             if (!isMountedRef.current) { // Check if component unmounted during permission request
-                console.log("Voice Analysis: Unmounted after getting permission. Stopping tracks.");
-                stream.getTracks().forEach(track => track.stop());
-                return null; // Indicate failure or inability to proceed
-            }
-
-            console.log("Voice Analysis: Microphone permission granted.");
-            setStatus('idle'); // Ready to record
-            return stream; // Return the stream for immediate use
-
-        } catch (err) {
-            console.error("Voice Analysis: Microphone permission error:", err);
-            let message = "Could not access microphone.";
-            if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-                message = "Microphone permission denied. Please allow access in browser settings.";
-            } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
-                 message = "No microphone found on this device.";
-            }
-            setError(message);
-            setStatus('error');
-            return null; // Indicate failure
-        }
-    }, []);
-
-    // --- Handle Start Recording ---
-    const handleStartRecording = useCallback(async () => {
-        if (!isMountedRef.current) return;
-
-        setError(null); // Clear previous errors
-        setReport(null); // Clear previous report
-        setAudioUrl(null); // Clear previous audio URL
-
-        let stream = streamRef.current; // Use existing stream if available
-        if (!stream) {
-             console.log("Voice Analysis: No existing stream, requesting permission...");
-             stream = await requestMicPermission();
-             if (!stream || !isMountedRef.current) { // Check if permission failed or unmounted
-                 console.error("Voice Analysis: Failed to get stream for recording.");
-                 return; // Exit if stream couldn't be obtained
-             }
-              streamRef.current = stream; // Assign to ref only if successful and mounted
-        }
-
-
-        // --- Safety check if stream is *still* null ---
-         if (!streamRef.current) {
-             console.error("Voice Analysis: Stream ref is null, cannot start recorder.");
-             setError("Failed to initialize microphone stream.");
-             setStatus('error');
-             return;
-         }
-
-        audioChunksRef.current = []; // Clear previous chunks
-        setStatus('recording');
-        setCountdown(RECORDING_DURATION_MS / 1000);
-
-
-        try {
-             // Determine supported MIME type
-            const options = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/wav', 'audio/webm'].find(type => MediaRecorder.isTypeSupported(type));
-             if (!options) { throw new Error("No suitable audio recording format supported by this browser."); }
-             console.log(`Voice Analysis: Using MIME type: ${options}`);
-
-            mediaRecorderRef.current = new MediaRecorder(streamRef.current, { mimeType: options });
-
-            // --- Event Handlers for MediaRecorder ---
-            mediaRecorderRef.current.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    audioChunksRef.current.push(event.data);
-                    // console.log("Voice Analysis: Chunk received, size:", event.data.size);
-                }
-            };
-
-            mediaRecorderRef.current.onstop = async () => {
-                console.log("Voice Analysis: Recording stopped.");
-                if (!isMountedRef.current) {
-                     console.log("Voice Analysis: Unmounted during onstop. Aborting analysis.");
-                     return;
-                }
-
-                if (audioChunksRef.current.length === 0) {
-                    console.warn("Voice Analysis: No audio chunks recorded.");
-                    setError("No audio data was captured. Please try again.");
-                    setStatus('error');
-                    cleanup(); // Clean up resources
-                    return;
-                }
-
-                 setStatus('processing'); // Indicate processing audio blob
-
-                // Combine chunks into a single Blob
-                const mimeType = mediaRecorderRef.current.mimeType; // Get the actual mimeType used
-                const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-                const url = URL.createObjectURL(audioBlob);
-                setAudioUrl(url); // Set URL for playback
-
-                console.log("Voice Analysis: Audio Blob created, size:", audioBlob.size, "type:", audioBlob.type);
-                audioChunksRef.current = []; // Clear chunks after creating blob
-
-                // Send to backend API
-                await sendAudioToApi(audioBlob);
-            };
-
-            mediaRecorderRef.current.onerror = (event) => {
-                 console.error("Voice Analysis: MediaRecorder error:", event.error);
-                 if (isMountedRef.current) {
-                    setError(`Recording error: ${event.error.message || 'Unknown recording error'}`);
-                    setStatus('error');
-                    cleanup();
-                 }
-            };
-            // --- End Event Handlers ---
-
-
-            mediaRecorderRef.current.start();
-            console.log("Voice Analysis: MediaRecorder started.");
-
-
-            // Start countdown timer
-            countdownIntervalRef.current = setInterval(() => {
-                 if (!isMountedRef.current) { clearInterval(countdownIntervalRef.current); return; }
-                setCountdown(prev => {
-                    if (prev <= 1) {
-                        clearInterval(countdownIntervalRef.current);
-                        // Trigger stop slightly before timeout ensures onstop fires reliably
-                         if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-                              mediaRecorderRef.current.stop();
-                         }
-                        return 0;
-                    }
-                    return prev - 1;
-                });
-            }, 1000);
-
-            // Optional: Set timeout to automatically stop recording
-            // setTimeout(() => {
-            //     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-            //         console.log("Voice Analysis: Reaching recording duration timeout.");
-            //         mediaRecorderRef.current.stop();
-            //     }
-            // }, RECORDING_DURATION_MS);
-
-
-        } catch (err) {
-            console.error("Voice Analysis: Error starting recorder:", err);
-             if (isMountedRef.current) {
-                setError(`Failed to start recording: ${err.message}`);
-                setStatus('error');
-                cleanup(); // Clean up if start failed
-             }
-        }
-
-    }, [requestMicPermission, cleanup]);
-
-
-     // --- Handle Stop Recording (Manual) ---
-     const handleStopRecording = useCallback(() => {
-         if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-             console.log("Voice Analysis: Manual stop requested.");
-             mediaRecorderRef.current.stop(); // This will trigger the 'onstop' handler
-              if (countdownIntervalRef.current) {
-                 clearInterval(countdownIntervalRef.current); // Stop countdown early
-                 countdownIntervalRef.current = null;
-             }
-             // Status will change in onstop handler
-         }
-     }, []);
-
-
-    // --- Send Audio to Backend API ---
-    const sendAudioToApi = async (audioBlob) => {
-        if (!isMountedRef.current) return;
-        setStatus('analyzing'); // Update status: Sending to API
-
-        console.log("Voice Analysis: Sending audio to API...");
-        const formData = new FormData();
-        // Append the blob with a filename (backend might use this)
-        formData.append('audio', audioBlob, `voice-analysis-${Date.now()}.webm`); // Adjust extension based on MIME if needed
-
-        try {
-            // Replace with your actual backend API endpoint
-            const response = await fetch('/api/analyze-voice', {
-                method: 'POST',
-                body: formData,
-                // No 'Content-Type' header needed for FormData, browser sets it with boundary
-            });
-
-            if (!isMountedRef.current) {
-                console.log("Voice Analysis: Unmounted during API fetch.");
-                return; // Exit if unmounted
-            }
-
-            const result = await response.json();
-
-            if (!response.ok) {
-                throw new Error(result.error || `API Error: ${response.status}`);
-            }
-
-            if (result.success && result.report) {
-                console.log("Voice Analysis: Analysis successful.");
-                setReport(result.report);
-                setStatus('complete');
-            } else {
-                throw new Error(result.error || "API returned unsuccessful or missing report.");
-            }
-        } catch (err) {
-            console.error("Voice Analysis: API Error:", err);
-            if (isMountedRef.current) {
-                setError(`Analysis failed: ${err.message}`);
-                setStatus('error');
-            }
-        } finally {
-            // Clean up stream/recorder *after* API call attempt, regardless of success/error
-             // Note: onstop already cleared chunks, but cleanup ensures stream is released
-             cleanup();
-             console.log("Voice Analysis: Resources potentially cleaned up after API call.");
-        }
-    };
-
-    // --- Handle Send Report to Chat ---
-     const handleSendToChat = () => {
-        if (report && status === 'complete') {
-             console.log("Voice Analysis: Sending report to chat.");
-             // Encode the report to handle special characters in URL
-             const encodedReport = encodeURIComponent(report);
-             // You might want a shorter summary or a specific part of the report
-             // For now, sending the whole (potentially long) report.
-             router.push(`/chat?voiceReport=${encodedReport}`);
-        }
-    };
-
-
-    // --- Effect for Initial Permission & Cleanup ---
-    useEffect(() => {
+        // Ensure ref is true at the start of an attempt
         isMountedRef.current = true;
-        console.log("Voice Analysis: Component mounted.");
-        // Optionally request permission on mount, or wait for button click
-        // requestMicPermission(); // Uncomment to request permission immediately
 
+        setBloodPressure(null);
+        setProcessingError(null);
+        setIsProcessing(true); // Set processing true early
+        setProgress(0);
+        setProcessingPhase(1);
+
+        // Stop any previous analysis first (important!)
+        stopAnalysis();
+        await new Promise(resolve => setTimeout(resolve, 150)); // Small delay
+
+
+        let localStream = null; // Use local var to manage stream release on early exit
+
+        try {
+             console.log("Blood Pressure Page: Requesting camera access...");
+             // ... (getUserMedia logic as before) ...
+              if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                 throw new Error("Webcam access is not supported in this browser.");
+             }
+             const constraints = { video: { facingMode: "user", width: { ideal: 320 }, height: { ideal: 240 } }, audio: false };
+              try {
+                 localStream = await navigator.mediaDevices.getUserMedia(constraints);
+              } catch (err) {
+                 console.warn("Front camera failed, trying default", err);
+                 const fallbackConstraints = { video: { width: { ideal: 320 }, height: { ideal: 240 } }, audio: false };
+                 localStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+             }
+
+
+             // *** CHECK MOUNTED before proceeding ***
+             if (!isMountedRef.current) {
+                 console.log("Blood Pressure Page: Unmounted after getUserMedia. Stopping stream.");
+                 localStream?.getTracks().forEach(track => track.stop()); // Stop tracks if acquired
+                 return; // Exit early
+             }
+
+             streamRef.current = localStream; // Assign to ref only if mounted
+
+             if (videoRef.current) {
+                 videoRef.current.srcObject = streamRef.current;
+                 try {
+                     console.log("Blood Pressure Page: Attempting video play...");
+                     await videoRef.current.play();
+                     // *** CHECK MOUNTED after play attempt settles ***
+                     if (!isMountedRef.current) {
+                         console.log("Blood Pressure Page: Unmounted during/after video play. Aborting.");
+                         // stopAnalysis will be called by cleanup, no need to return here explicitly
+                         // unless we want to prevent subsequent code in THIS function call
+                         return;
+                     }
+                     console.log("Blood Pressure Page: Webcam stream playing.");
+                 } catch (playError) {
+                    // If play fails (e.g., interrupted by unmount), catch it
+                     console.error("Blood Pressure Page: Video play() error:", playError);
+                     // Don't throw if it's an AbortError caused by navigation/unmount
+                     if (playError.name === 'AbortError') {
+                         console.log("Blood Pressure Page: play() aborted, likely due to unmount/navigation.");
+                          // Component is likely unmounting, cleanup will handle stream stop
+                         return; // Exit function gracefully
+                     }
+                     // For other errors, re-throw or set specific error state
+                      if (!isMountedRef.current) return; // Check before throwing/setting state
+                     throw new Error(`Could not play video stream: ${playError.message}`);
+                 }
+             } else {
+                 if (!isMountedRef.current) return; // Check before throwing
+                throw new Error("Video element reference missing.");
+             }
+
+            // *** CHECK MOUNTED before setting timers ***
+            if (!isMountedRef.current) return;
+
+            // Start overall progress
+            setProgress(5);
+            const intervalTime = 100;
+            const totalSteps = ANALYSIS_TOTAL_DURATION_MS / intervalTime;
+            const increment = 95 / totalSteps;
+
+             if (progressIntervalRef.current) clearInterval(progressIntervalRef.current); // Clear old just in case
+            progressIntervalRef.current = setInterval(() => {
+                 // Check inside interval too (optional but safer)
+                 if (!isMountedRef.current) {
+                     clearInterval(progressIntervalRef.current);
+                     return;
+                 }
+                setProgress(p => Math.min(100, p + increment));
+            }, intervalTime);
+
+            // Phase 1 Timer
+             if (analysisTimeoutRef.current) clearTimeout(analysisTimeoutRef.current); // Clear old just in case
+            analysisTimeoutRef.current = setTimeout(() => {
+                 // *** CHECK MOUNTED before Phase 2 logic ***
+                 if (!isMountedRef.current) {
+                      console.log("Blood Pressure Page: Unmounted before Phase 2.");
+                      return;
+                 }
+                console.log("Blood Pressure Page: Simulating Phase 2...");
+                setProcessingPhase(2); // State update only if mounted
+
+                // Phase 2 Timer
+                analysisTimeoutRef.current = setTimeout(() => {
+                     // *** CHECK MOUNTED before setting final result ***
+                     if (!isMountedRef.current) {
+                          console.log("Blood Pressure Page: Unmounted before setting final result.");
+                          return;
+                     }
+                    console.log("Blood Pressure Page: Analysis complete logic executing...");
+                    const systolic = Math.floor(Math.random() * (MAX_SYSTOLIC - MIN_SYSTOLIC + 1)) + MIN_SYSTOLIC;
+                    const diastolic = Math.floor(Math.random() * (MAX_DIASTOLIC - MIN_DIASTOLIC + 1)) + MIN_DIASTOLIC;
+
+                    setBloodPressure({ systolic, diastolic });
+                    setProgress(100);
+                     setIsProcessing(false); // Set processing false *before* calling stopAnalysis if desired
+                     // stopAnalysis(); // Call stop here or let cleanup handle it? Cleanup is safer.
+                     console.log("Blood Pressure Page: Analysis simulation complete. BP:", `${systolic}/${diastolic}`);
+
+                     // Note: stopAnalysis will be called by the useEffect cleanup anyway when
+                     // the component eventually unmounts or if startAnalysis is called again.
+                     // Calling it here might be redundant unless you specifically want to stop the camera
+                     // *immediately* upon showing the result, even before navigation.
+                     // Let's remove the explicit call here and rely on cleanup / next startAnalysis call.
+
+
+                }, PHASE2_DURATION_MS); // End of Phase 2
+
+            }, PHASE1_DURATION_MS); // End of Phase 1
+
+        } catch (error) {
+            // *** CHECK MOUNTED before setting error state ***
+             if (!isMountedRef.current) {
+                 console.log("Blood Pressure Page: Unmounted before error could be set.");
+                 // Ensure stream is stopped if acquired before error and unmount
+                 localStream?.getTracks().forEach(track => track.stop());
+                 return; // Don't try to set state
+             }
+            console.error("Blood Pressure Page Error during analysis setup:", error);
+            // ... (error message formatting as before) ...
+             let message = "Could not start blood pressure estimation.";
+             // ... (rest of error handling) ...
+            setProcessingError(message);
+            setIsProcessing(false); // Set loading false on error
+            // No need to call stopAnalysis here, it was likely called at start
+            // or will be called by cleanup if component unmounts due to error/navigation
+             // Ensure stream acquired in this attempt is stopped if error occurred mid-way
+            localStream?.getTracks().forEach(track => track.stop());
+             streamRef.current = null; // Ensure ref is cleared if error happened after assignment
+        }
+    }, [stopAnalysis]); // Keep stopAnalysis dependency
+
+    // --- useEffect for auto-start and cleanup (Update cleanup) ---
+    useEffect(() => {
+        isMountedRef.current = true; // Set true on mount
+        console.log("Blood Pressure Page: Component mounted.");
+        startAnalysis();
+
+        // Return cleanup function
         return () => {
-            console.log("Voice Analysis: Component unmounting.");
-            isMountedRef.current = false;
-            cleanup(); // Call cleanup on unmount
+            isMountedRef.current = false; // <<< SET isMounted to false FIRST
+            console.log("Blood Pressure Page: Component unmounting...");
+            stopAnalysis(); // Then call stopAnalysis
+            console.log("Blood Pressure Page: Cleanup complete.");
         };
-    }, [cleanup, requestMicPermission]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Run only on mount; startAnalysis handles its dependencies internally
 
-
-    // --- Render Logic ---
-    const renderStatus = () => {
-        switch (status) {
-            case 'permission':
-                return <p className="text-muted-foreground flex items-center justify-center"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Requesting microphone access...</p>;
-            case 'idle':
-                return <p className="text-muted-foreground">Ready to record.</p>;
-            case 'recording':
-                return (
-                    <div className="text-center space-y-2">
-                         <div className="flex items-center justify-center space-x-2 text-red-500">
-                            <Mic className="h-5 w-5 animate-pulse" />
-                            <span className="font-medium">Recording...</span>
-                         </div>
-                         <p className="text-2xl font-bold">{countdown}s</p>
-                         {/* Optional: Add a simple visualizer here if desired */}
-                    </div>
-                );
-            case 'processing':
-                 return <p className="text-muted-foreground flex items-center justify-center"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing audio...</p>;
-            case 'analyzing':
-                return (
-                     <div className="text-center space-y-2 text-blue-500">
-                        <BrainCircuit className="h-6 w-6 mx-auto animate-pulse" />
-                        <p className="font-medium">Analyzing voice with AI...</p>
-                    </div>
-                );
-             case 'complete':
-                return <p className="text-green-600 flex items-center justify-center"><FileText className="mr-2 h-4 w-4" /> Analysis Complete.</p>;
-            case 'error':
-                return <p className="text-red-600">Error occurred.</p>;
-            default:
-                return null;
+    // --- handleSendToChat (Keep as before) ---
+    const handleSendToChat = () => {
+        if (bloodPressure && !processingError) {
+             // stopAnalysis(); // Optional: call stop explicitly before nav if desired
+            console.log(`Blood Pressure Page: Navigating to chat with BP=${bloodPressure.systolic}/${bloodPressure.diastolic}`);
+            router.push(`/chat?bpSystolic=${bloodPressure.systolic}&bpDiastolic=${bloodPressure.diastolic}`);
+        } else {
+            console.warn("Blood Pressure Page: Attempted to send to chat without a valid result.");
         }
     };
 
+    // --- RETURN page JSX (Keep as before) ---
     return (
-        <div className="container mx-auto px-4 py-8 max-w-lg">
-            <Button variant="ghost" onClick={() => router.back()} className="mb-4">
-                <ArrowLeft className="mr-2 h-4 w-4" /> Back
-            </Button>
-
-            <h1 className="text-2xl font-bold mb-4 text-center">Voice Analysis</h1>
-
-            <p className="text-muted-foreground mb-6 text-center">
-                Record a short voice sample (e.g., read a sentence or describe your day) for AI analysis. Ensure you are in a quiet environment.
-            </p>
-
-             <Card className="mb-6">
-                 <CardContent className="pt-6 min-h-[100px] flex flex-col items-center justify-center">
-                    {renderStatus()}
-                    {error && (
-                         <Alert variant="destructive" className="mt-4">
-                             <Terminal className="h-4 w-4" />
-                             <AlertTitle>Error</AlertTitle>
-                             <AlertDescription>{error}</AlertDescription>
-                         </Alert>
-                    )}
-                 </CardContent>
-            </Card>
-
-
-            {/* Recording Controls */}
-            <div className="flex justify-center space-x-4 mb-6">
-                 <Button
-                    onClick={handleStartRecording}
-                    disabled={status === 'recording' || status === 'processing' || status === 'analyzing' || status === 'permission'}
-                    size="lg"
-                    className="bg-green-600 hover:bg-green-700"
-                >
-                    <Mic className="mr-2 h-5 w-5" /> Start Recording
-                </Button>
-                 <Button
-                    onClick={handleStopRecording}
-                    disabled={status !== 'recording'}
-                    variant="destructive"
-                    size="lg"
-                >
-                    <Square className="mr-2 h-5 w-5" /> Stop Recording
-                </Button>
+         <div className="container mx-auto px-4 py-8 max-w-lg">
+            {/* ... Back Button ... */}
+             <Button variant="ghost" onClick={() => router.back()} className="mb-4">
+                 <ArrowLeft className="mr-2 h-4 w-4" /> Back
+             </Button>
+            {/* ... Title ... */}
+            <h1 className="text-2xl font-bold mb-4 text-center">Blood Pressure Estimation</h1>
+            {/* ... Instructions ... */}
+             <p className="text-muted-foreground mb-6 text-center">
+                 Place your finger gently over the webcam lens. The system will analyze vascular signals and estimate your blood pressure.
+             </p>
+             {/* ... Main Content Area ... */}
+            <div className="py-4 space-y-4 min-h-[300px] flex flex-col justify-center items-center border rounded-lg p-4 bg-card">
+                {/* ... Error Display ... */}
+                {processingError && ( <Alert /* ... */ /> )}
+                 {/* ... Video Preview ... */}
+                 <div className={`relative w-32 h-24 bg-black rounded overflow-hidden border border-muted mx-auto mb-4 ${!isProcessing && bloodPressure === null && !processingError ? 'opacity-50' : ''}`}>
+                     <video ref={videoRef} muted playsInline className="w-full h-full object-cover"></video>
+                     {!isProcessing && bloodPressure === null && !processingError && <Video className="absolute inset-0 m-auto h-8 w-8 text-white/50"/> }
+                 </div>
+                {/* ... Processing Display ... */}
+                {isProcessing && !processingError && ( <div /* ... phase 1 / phase 2 display ... */ /> )}
+                 {/* ... Result Display ... */}
+                 {!isProcessing && bloodPressure && !processingError && ( <div /* ... BP result display ... */ /> )}
+                 {/* ... Initial State ... */}
+                  {!isProcessing && !bloodPressure && !processingError && ( <div /* ... Preparing analysis ... */ /> )}
             </div>
-
-            {/* Audio Playback (Optional) */}
-            {audioUrl && status !== 'recording' && status !== 'processing' && status !== 'analyzing' && (
-                <div className="mb-6 text-center">
-                    <p className="text-sm text-muted-foreground mb-2">Listen to your recording:</p>
-                    <audio controls src={audioUrl} className="mx-auto">
-                         Your browser does not support the audio element.
-                     </audio>
-                </div>
-            )}
-
-            {/* Report Display */}
-             {report && status === 'complete' && (
-                 <Card>
-                     <CardHeader>
-                         <CardTitle className="flex items-center"><FileText className="mr-2 h-5 w-5 text-primary"/> Voice Analysis Report</CardTitle>
-                     </CardHeader>
-                     <CardContent>
-                         <p className="whitespace-pre-wrap text-sm">{report}</p> {/* Use pre-wrap to respect formatting */}
-                     </CardContent>
-                 </Card>
-             )}
-
-
-            {/* Bottom Buttons */}
+            {/* ... Button Area ... */}
             <div className="mt-8 flex justify-center space-x-4">
-                {(status === 'complete' || status === 'error') && status !== 'recording' && (
-                     <Button variant="secondary" onClick={handleStartRecording}>
-                        Record Again
-                    </Button>
-                )}
-                {status === 'complete' && report && (
-                    <Button onClick={handleSendToChat}>
-                        <Send className="mr-2 h-4 w-4" /> Send Report to Chat
-                    </Button>
-                )}
-                <Button variant="outline" onClick={() => router.back()}>
-                    Done
-                </Button>
+                {/* ... Analyze Again Button ... */}
+                {!isProcessing && (processingError || bloodPressure) && ( <Button variant="secondary" onClick={startAnalysis}>Analyze Again</Button>)}
+                {/* ... Send to Chat Button ... */}
+                {!isProcessing && bloodPressure && !processingError && ( <Button onClick={handleSendToChat}><Send className="mr-2 h-4 w-4" /> Send to Chat</Button>)}
+                {/* ... Done Button ... */}
+                <Button variant="outline" onClick={() => router.back()}>Done</Button>
             </div>
         </div>
     );

@@ -1,14 +1,11 @@
-// src/app/sensors/heart-rate/page.jsx
-
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { useRouter } from 'next/navigation';
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input"; // Import Input component
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Terminal, Heart, ArrowLeft, Mic } from "lucide-react"; // Added Mic icon
+import { Terminal, Heart, ArrowLeft } from "lucide-react";
 
 export default function HeartRateScanPage() {
     const router = useRouter();
@@ -17,272 +14,155 @@ export default function HeartRateScanPage() {
     const [isProcessingPpg, setIsProcessingPpg] = useState(false);
     const [ppgError, setPpgError] = useState(null);
     const [progress, setProgress] = useState(0);
-    const [aiQuery, setAiQuery] = useState(""); // State for the AI input
+
     const videoRef = useRef(null);
     const streamRef = useRef(null);
-    const ppgTimeoutRef = useRef(null);
+    const frameBufferRef = useRef([]);
+    const timeBufferRef = useRef([]);
+    const samplingIntervalRef = useRef(null);
     const progressIntervalRef = useRef(null);
 
     const stopCamera = useCallback(() => {
-        console.log("PPG Page: Stopping camera...");
-        if (ppgTimeoutRef.current) clearTimeout(ppgTimeoutRef.current);
+        if (samplingIntervalRef.current) clearInterval(samplingIntervalRef.current);
         if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(track => track.stop());
-            console.log("PPG Page: Tracks stopped.");
         }
         if (videoRef.current) {
             videoRef.current.srcObject = null;
-            console.log("PPG Page: Video source cleared.");
         }
         streamRef.current = null;
-        // Don't reset processing/progress flags here if called during cleanup
-        // Let the start function handle resetting them explicitly
-        ppgTimeoutRef.current = null;
+        samplingIntervalRef.current = null;
         progressIntervalRef.current = null;
     }, []);
 
+    const processFrame = useCallback(() => {
+        const video = videoRef.current;
+        if (!video) return;
+
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext("2d");
+
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = frame.data;
+
+        let redSum = 0;
+        for (let i = 0; i < data.length; i += 4) {
+            redSum += data[i]; // red channel
+        }
+
+        const redAvg = redSum / (data.length / 4);
+        frameBufferRef.current.push(redAvg);
+        timeBufferRef.current.push(Date.now());
+
+        // Keep only the last 10 seconds of data
+        const tenSecondsAgo = Date.now() - 10000;
+        while (timeBufferRef.current.length && timeBufferRef.current[0] < tenSecondsAgo) {
+            timeBufferRef.current.shift();
+            frameBufferRef.current.shift();
+        }
+    }, []);
+
+    const detectHeartRate = useCallback(() => {
+        const values = frameBufferRef.current;
+        const times = timeBufferRef.current;
+
+        if (values.length < 2) return null;
+
+        let peaks = 0;
+        for (let i = 1; i < values.length - 1; i++) {
+            if (values[i] > values[i - 1] && values[i] > values[i + 1]) {
+                peaks++;
+            }
+        }
+
+        const duration = (times[times.length - 1] - times[0]) / 1000;
+        if (duration === 0) return null;
+
+        const bpm = (peaks / duration) * 60;
+        return Math.round(bpm);
+    }, []);
+
     const startPpgScan = useCallback(async () => {
-        console.log("PPG Page: Attempting to start scan...");
         setHeartRate(null);
         setPpgError(null);
         setIsProcessingPpg(true);
         setProgress(0);
-        setAiQuery(""); // Reset AI query on new scan
-
-        // Stop any existing camera streams/timers before starting new ones
-        if (streamRef.current || ppgTimeoutRef.current || progressIntervalRef.current) {
-            console.log("PPG Page: Stopping previous scan artifacts before starting new one.");
-            if (ppgTimeoutRef.current) clearTimeout(ppgTimeoutRef.current);
-            if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
-             if (streamRef.current) {
-                streamRef.current.getTracks().forEach(track => track.stop());
-            }
-            if (videoRef.current) {
-                videoRef.current.srcObject = null;
-            }
-            streamRef.current = null;
-            ppgTimeoutRef.current = null;
-            progressIntervalRef.current = null;
-        }
-
 
         try {
-            console.log("PPG Page: Requesting user media...");
-            const constraints = { video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false };
-            let stream;
-            try {
-                stream = await navigator.mediaDevices.getUserMedia(constraints);
-                console.log("PPG Page: Got environment camera stream.");
-            } catch (err) {
-                console.warn("PPG Page: Environment camera failed, trying default.", err);
-                const fallbackConstraints = { video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false };
-                stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
-                console.log("PPG Page: Got default camera stream.");
-            }
-
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
             streamRef.current = stream;
 
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
-                // Ensure the video element is ready before playing
-                await new Promise((resolve) => {
-                    videoRef.current.onloadedmetadata = () => {
-                        resolve();
-                    };
-                });
-                await videoRef.current.play();
-                console.log("PPG Page: Video playing.");
-            } else {
-                throw new Error("Video ref is not available.");
+                videoRef.current.play();
             }
 
-            // Start progress and simulation
-            setProgress(10);
-            const duration = 10000; // 10 seconds
-            const intervalTime = 100; // Update progress every 100ms
-            const steps = duration / intervalTime;
-            const increment = 90 / steps; // Increment to reach 100% (10 initial + 90 over duration)
+            // Clear previous buffers
+            frameBufferRef.current = [];
+            timeBufferRef.current = [];
 
+            samplingIntervalRef.current = setInterval(() => {
+                processFrame();
+            }, 100); // 10 FPS
+
+            let progressVal = 0;
             progressIntervalRef.current = setInterval(() => {
-                setProgress(p => Math.min(100, p + increment));
-            }, intervalTime);
-
-            ppgTimeoutRef.current = setTimeout(() => {
-                const bpm = Math.floor(Math.random() * 36) + 60; // Simulate 60-95 BPM
-                setHeartRate(bpm);
-                setIsProcessingPpg(false);
-                setProgress(100); // Ensure progress hits 100
-                if (progressIntervalRef.current) {
+                progressVal += 5;
+                setProgress(progressVal);
+                if (progressVal >= 100) {
                     clearInterval(progressIntervalRef.current);
-                    progressIntervalRef.current = null;
+                    clearInterval(samplingIntervalRef.current);
+                    const bpm = detectHeartRate();
+                    setHeartRate(bpm || "Error");
+                    setIsProcessingPpg(false);
+                    stopCamera();
                 }
-                // Camera is intentionally left running until user navigates away or scans again
-                console.log("PPG Page: Scan simulation complete. BPM:", bpm);
-
-            }, duration);
-
-        } catch (error) {
-            console.error("PPG Page Error during scan setup:", error);
-            let message = "Could not access camera. Please ensure permission is granted and the camera is not in use by another application.";
-             if (error instanceof DOMException) {
-                if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
-                    message = "No suitable camera found.";
-                } else if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
-                    message = "Camera permission denied. Please grant permission in your browser settings.";
-                } else if (error.name === "NotReadableError" || error.name === "TrackStartError") {
-                    message = "Camera is already in use or encountered a hardware error.";
-                } else if (error.name === "OverconstrainedError" || error.name === "ConstraintNotSatisfiedError") {
-                     message = "Could not find a camera matching the requested constraints (e.g., facing mode).";
-                }
-            } else if (error.message === "Video ref is not available."){
-                message = "Internal error: Video element reference missing.";
-            }
-            setPpgError(message);
+            }, 500);
+        } catch (err) {
+            console.error("Camera access error:", err);
+            setPpgError("Unable to access camera.");
             setIsProcessingPpg(false);
-            setProgress(0);
-            // Explicitly call stopCamera here to clean up resources after a setup failure
-            stopCamera();
         }
-    }, [stopCamera]); // Include stopCamera in dependencies
-
+    }, [detectHeartRate, processFrame, stopCamera]);
 
     useEffect(() => {
-        console.log("PPG Page: Component mounted.");
-        const startDelayMs = 300;
-        const startTimeoutId = setTimeout(() => {
-
-            // Only start if the component is still mounted and no error occurred during potential previous attempts
-            if (!ppgError && videoRef.current) { // Check videoRef as proxy for mounted state
-                 startPpgScan();
-            } else {
-                 console.log("PPG Page: Scan start aborted (component unmounted or error present).");
-            }
-        }, startDelayMs);
-
         return () => {
-            console.log("PPG Page: Component unmounting...");
-            clearTimeout(startTimeoutId);
-            stopCamera(); // Use the memoized stop function for cleanup
-            console.log("PPG Page: Cleanup complete.");
+            stopCamera();
         };
-        // Start scan only on initial mount. Avoid re-running if dependencies change.
-        // startPpgScan is memoized, but adding it can cause re-runs if its own deps change unexpectedly.
-        // We want the mount/unmount behavior primarily.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // Keep dependencies minimal for mount/unmount behavior
+    }, [stopCamera]);
 
-    // --- Handlers for AI Input ---
-    const handleAiInputChange = (event) => {
-        setAiQuery(event.target.value);
-    };
-
-    const handleAiInputKeyDown = (event) => {
-        if (event.key === 'Enter' && aiQuery.trim()) {
-            event.preventDefault(); // Prevent potential form submission if wrapped later
-            console.log("PPG Page: Navigating to chat with query:", aiQuery);
-            // Optionally pass the query via state or query params later
-            router.push('/chat');
-        } else if (event.key === 'Enter') {
-             event.preventDefault();
-             // Optionally provide feedback if Enter is pressed with empty input
-             console.log("PPG Page: Enter pressed on empty AI input, doing nothing.");
-        }
-    };
-
-    const handleMicClick = () => {
-        console.log("PPG Page: Mic button clicked, navigating to chat.");
-        // Navigate to chat, potentially activating voice input on that page later
-        router.push('/chat');
-    };
-
-    // --- RETURN page JSX ---
     return (
-        <div className="container mx-auto px-4 py-8 max-w-lg">
-            <Button variant="ghost" onClick={() => router.back()} className="mb-4">
-                <ArrowLeft className="mr-2 h-4 w-4" /> Back
+        <div className="p-4">
+            <Button variant="ghost" onClick={() => router.back()} className="mb-4 flex items-center gap-2">
+                <ArrowLeft /> Back
             </Button>
 
-            <h1 className="text-2xl font-bold mb-4 text-center">Heart Rate Scan (PPG)</h1>
+            <div className="text-center">
+                <h1 className="text-2xl font-bold mb-2">Heart Rate Scan (PPG)</h1>
+                <p className="mb-4 text-gray-500">Place your fingertip over the camera lens and hold still.</p>
+                <video ref={videoRef} className="w-full max-w-sm mx-auto rounded-md shadow" autoPlay muted playsInline />
 
-            <p className="text-muted-foreground mb-6 text-center">
-                Place your index finger gently over the rear camera lens, covering it completely. Remain still.
-            </p>
-
-            <div className="py-4 space-y-4">
-                {/* Video Feed */}
-                <div className="relative w-full aspect-video bg-neutral-800 rounded overflow-hidden border border-neutral-700">
-                    <video
-                        ref={videoRef}
-                        muted
-                        playsInline
-                        className="w-full h-full object-cover"
-                    ></video>
-                    {/* Optional: Add overlay/indicator if needed */}
-                </div>
-
-                {/* Status Display */}
+                {isProcessingPpg && <Progress value={progress} className="mt-4" />}
+                {heartRate && typeof heartRate === "number" && (
+                    <Alert className="mt-4">
+                        <Heart className="h-4 w-4" />
+                        <AlertTitle>Heart Rate</AlertTitle>
+                        <AlertDescription>{heartRate} BPM</AlertDescription>
+                    </Alert>
+                )}
                 {ppgError && (
-                    <Alert variant="destructive">
+                    <Alert variant="destructive" className="mt-4">
                         <Terminal className="h-4 w-4" />
                         <AlertTitle>Error</AlertTitle>
                         <AlertDescription>{ppgError}</AlertDescription>
                     </Alert>
                 )}
-                {isProcessingPpg && !ppgError && (
-                    <div className="text-center space-y-2">
-                        <p className="text-sm text-muted-foreground animate-pulse">Scanning... Keep finger still</p>
-                        <Progress value={progress} className="w-full" />
-                        <p className="text-xs text-muted-foreground">{Math.round(progress)}%</p>
-                    </div>
-                )}
-                {!isProcessingPpg && heartRate !== null && !ppgError && (
-                    <div className="text-center p-4 bg-green-100 dark:bg-green-900/50 rounded-lg border border-green-300 dark:border-green-700">
-                        <Heart className="mx-auto h-6 w-6 text-green-600 dark:text-green-400 mb-2" />
-                        <p className="text-sm text-muted-foreground mb-1">Estimated Heart Rate:</p>
-                        <p className="text-4xl font-bold text-green-700 dark:text-green-300">{heartRate}</p>
-                        <p className="text-sm text-muted-foreground mt-1">BPM</p>
-
-                        {/* --- NEW: AI Input Section --- */}
-                        <div className="mt-6 flex items-center space-x-2">
-                            <Input
-                                type="text"
-                                placeholder="Ask about this heart rate..."
-                                value={aiQuery}
-                                onChange={handleAiInputChange}
-                                onKeyDown={handleAiInputKeyDown}
-                                className="flex-grow" // Allow input to take available space
-                            />
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={handleMicClick}
-                                aria-label="Ask AI via voice"
-                            >
-                                <Mic className="h-5 w-5" />
-                            </Button>
-                        </div>
-                        {/* --- End AI Input Section --- */}
-                    </div>
-                )}
-                {/* Initial state */}
-                {!isProcessingPpg && heartRate === null && !ppgError && progress === 0 && (
-                     <div className="text-center p-4 bg-blue-100 dark:bg-blue-900/50 rounded-lg border border-blue-300 dark:border-blue-700">
-                        <p className="text-sm text-muted-foreground">Preparing camera...</p>
-                    </div>
-                )}
-            </div>
-
-            <div className="mt-6 flex justify-center space-x-4">
-                {/* Scan Again Button: Show if not processing AND (error exists OR result exists) */}
-                {!isProcessingPpg && (ppgError || heartRate !== null) && (
-                    <Button variant="secondary" onClick={startPpgScan}>
-                        Scan Again
-                    </Button>
-                )}
-                {/* Done Button: Always show */}
-                <Button variant="outline" onClick={() => router.back()}>
-                    Done
+                <Button onClick={startPpgScan} disabled={isProcessingPpg} className="mt-6">
+                    {isProcessingPpg ? "Scanning..." : "Start Scan"}
                 </Button>
             </div>
         </div>
